@@ -1,0 +1,147 @@
+import { NegotiationsDashboardData } from "@/types/dashboard";
+
+// Données simulées — structure identique à la future réponse
+// GET /api/dashboard/negociations/?from=...&to=...
+export const mockNegotiationsDashboard: NegotiationsDashboardData = {
+  period: {
+    from: "2026-05-01",
+    to: "2026-05-06",
+  },
+  kpis: [
+    {
+      id: "dossiers-ouverts",
+      label: "Dossiers ouverts",
+      value: 14,
+      trend: { value: 2, direction: "down", comparedTo: "dossiers vs période précédente" },
+    },
+    {
+      id: "montant-initial",
+      label: "Montant initial",
+      value: 223000000,
+      unit: "FCFA",
+      trend: { value: 8.2, direction: "up", comparedTo: "vs période précédente" },
+    },
+    {
+      id: "montant-recalcule",
+      label: "Montant recalculé",
+      value: 153000000,
+      unit: "FCFA",
+      trend: { value: 6.7, direction: "up", comparedTo: "vs période précédente" },
+    },
+    {
+      id: "montant-negocie",
+      label: "Montant négocié",
+      value: 171000000,
+      unit: "FCFA",
+      trend: { value: 4.5, direction: "down", comparedTo: "vs période précédente" },
+    },
+    {
+      id: "economie-obtenue",
+      label: "Économie obtenue",
+      value: 52000000,
+      unit: "FCFA",
+      trend: { value: 15.3, direction: "down", comparedTo: "vs période précédente" },
+    },
+    {
+      id: "taux-reduction",
+      label: "Taux de réduction",
+      value: 23,
+      unit: "%",
+      trend: { value: 3, direction: "up", comparedTo: "pts vs période précédente" },
+    },
+  ],
+  negotiationFiles: [
+    {
+      id: "nf-plateau",
+      commune: "Plateau",
+      montantInitial: 45000000,
+      montantRecalcule: 30200000,
+      montantNegocie: 33000000,
+      economie: 12000000,
+      nextAction: { type: "reunion", label: "Réunion - 09/05/2026" },
+    },
+    {
+      id: "nf-cocody",
+      commune: "Cocody",
+      montantInitial: 60000000,
+      montantRecalcule: 41000000,
+      montantNegocie: 47000000,
+      economie: 13000000,
+      nextAction: { type: "argumentaire", label: "Envoi d'argumentaire - 08/05/2026" },
+    },
+    {
+      id: "nf-adjame",
+      commune: "Adjamé",
+      montantInitial: 28000000,
+      montantRecalcule: 18500000,
+      montantNegocie: 21000000,
+      economie: 7000000,
+      nextAction: { type: "reunion", label: "Réunion - 07/05/2026" },
+    },
+    {
+      id: "nf-marcory",
+      commune: "Marcory",
+      montantInitial: 35000000,
+      montantRecalcule: 24000000,
+      montantNegocie: 27000000,
+      economie: 8000000,
+      nextAction: { type: "relance", label: "Relance - 10/05/2026" },
+    },
+    {
+      id: "nf-yopougon",
+      commune: "Yopougon",
+      montantInitial: 22000000,
+      montantRecalcule: 15000000,
+      montantNegocie: 16500000,
+      economie: 5500000,
+      nextAction: { type: "argumentaire", label: "Envoi d'argumentaire - 09/05/2026" },
+    },
+    {
+      id: "nf-abobo",
+      commune: "Abobo",
+      montantInitial: 18000000,
+      montantRecalcule: 12300000,
+      montantNegocie: 13500000,
+      economie: 4500000,
+      nextAction: { type: "reunion", label: "Réunion - 12/05/2026" },
+    },
+  ],
+  ongoingFiles: [
+    {
+      id: "of-plateau",
+      commune: "Plateau",
+      nextAppointment: "Prochain RDV : 09/05/2026 à 10:00",
+      tag: { label: "Réunion", color: "blue" },
+    },
+    {
+      id: "of-cocody",
+      commune: "Cocody",
+      nextAppointment: "Prochain RDV : 08/05/2026 à 15:00",
+      tag: { label: "Argumentaire", color: "orange" },
+    },
+    {
+      id: "of-adjame",
+      commune: "Adjamé",
+      nextAppointment: "Prochain RDV : 07/05/2026 à 11:00",
+      tag: { label: "Réunion", color: "blue" },
+    },
+  ],
+  readyArguments: [
+    { id: "ra-absent", label: "Supports absents", count: 12, iconKey: "absent" },
+    { id: "ra-doublon", label: "Doublons", count: 8, iconKey: "doublon" },
+    { id: "ra-periode", label: "Mauvaise période", count: 6, iconKey: "periode" },
+    { id: "ra-surface", label: "Mauvaise surface", count: 4, iconKey: "surface" },
+  ],
+  monthlySavings: [
+    { month: "Janvier", amount: 28500000 },
+    { month: "Février", amount: 31200000 },
+    { month: "Mars", amount: 24100000 },
+    { month: "Avril", amount: 18700000 },
+    { month: "Mai", amount: 22400000 },
+    { month: "Juin", amount: 27800000 },
+  ],
+  performance: {
+    averageReductionPercent: 23,
+    totalSavingsAmount: 52000000,
+  },
+};
