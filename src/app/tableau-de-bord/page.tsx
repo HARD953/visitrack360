@@ -1,7 +1,9 @@
 "use client";
 
 import type { ElementType } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Image as ImageIcon,
@@ -33,6 +35,10 @@ import {
   PiggyBank,
   Percent,
   LogOut,
+  TrendingUp,
+  TrendingDown,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 import {
   BarChart,
@@ -42,8 +48,13 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { mockNegotiationsDashboard } from "@/lib/mock/negotiationsDashboard";
-import type { ActionType, ReadyArgument } from "@/types/dashboard";
+import { useAuth } from "@/contexts/AuthContext";
+import { fetchDashboardNegociations } from "@/lib/api/dashboard";
+import type {
+  NegotiationsDashboardData,
+  ActionType,
+  ReadyArgument,
+} from "@/types/dashboard";
 
 // ---------------------------------------------------------------------------
 // Helpers d'affichage (propres à cette vue)
@@ -57,8 +68,22 @@ function formatPeriod(from: string, to: string): string {
   const f = new Date(from);
   const t = new Date(to);
   const fmt = (d: Date) =>
-    d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    d.toLocaleDateString("fr-FR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
   return `${fmt(f)} - ${fmt(t)}`;
+}
+
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function sevenDaysAgoISO(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 7);
+  return d.toISOString().slice(0, 10);
 }
 
 function actionIcon(type: ActionType) {
@@ -84,7 +109,9 @@ function actionIconClasses(type: ActionType): string {
 }
 
 function tagClasses(color: "blue" | "orange"): string {
-  return color === "blue" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700";
+  return color === "blue"
+    ? "bg-blue-100 text-blue-700"
+    : "bg-amber-100 text-amber-700";
 }
 
 function readyArgumentIcon(key: ReadyArgument["iconKey"]) {
@@ -113,7 +140,7 @@ function readyArgumentIconClasses(key: ReadyArgument["iconKey"]): string {
   }
 }
 
-// Une couleur de badge dédiée par KPI, même logique que le Dashboard Exécutif
+// Icône + couleur badge par KPI
 const KPI_STYLES: Record<string, { icon: ElementType; badge: string }> = {
   "dossiers-ouverts": { icon: Folder, badge: "bg-violet-500" },
   "montant-initial": { icon: Coins, badge: "bg-cyan-500" },
@@ -157,9 +184,53 @@ const NAV_SECTIONS = [
 
 const ACTIVE_HREF = "/tableau-de-bord";
 
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
 export default function TableauDeBordPage() {
-  const data = mockNegotiationsDashboard;
-  const maxMonthlySaving = Math.max(...data.monthlySavings.map((m) => m.amount));
+  const { user, logout } = useAuth();
+  const router = useRouter();
+
+  const [data, setData] = useState<NegotiationsDashboardData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [periodFrom, setPeriodFrom] = useState(sevenDaysAgoISO());
+  const [periodTo, setPeriodTo] = useState(todayISO());
+
+  // Redirect si non connecté
+  useEffect(() => {
+    if (!user) router.replace("/login");
+  }, [user, router]);
+
+  // Chargement des données
+  useEffect(() => {
+    if (!user) return;
+    setIsLoading(true);
+    setError(null);
+    fetchDashboardNegociations(periodFrom, periodTo)
+      .then(setData)
+      .catch(() =>
+        setError("Impossible de charger le tableau de bord. Vérifiez votre connexion.")
+      )
+      .finally(() => setIsLoading(false));
+  }, [user, periodFrom, periodTo]);
+
+  function retry() {
+    setIsLoading(true);
+    setError(null);
+    fetchDashboardNegociations(periodFrom, periodTo)
+      .then(setData)
+      .catch(() => setError("Impossible de charger le tableau de bord."))
+      .finally(() => setIsLoading(false));
+  }
+
+  const maxMonthlySaving = data
+    ? Math.max(...data.monthlySavings.map((m) => m.amount), 1)
+    : 1;
+
+  if (!user) return null;
 
   return (
     <div className="flex min-h-screen bg-[#F5F7FA]">
@@ -170,17 +241,21 @@ export default function TableauDeBordPage() {
             <span className="text-base font-bold text-white">V</span>
           </div>
           <div>
-            <p className="text-[15px] font-bold leading-tight text-slate-900">VisiTrack360</p>
+            <p className="text-[15px] font-bold leading-tight text-slate-900">
+              VisiTrack360
+            </p>
             <p className="text-[11px] text-slate-400">Audit de Visibilité</p>
           </div>
         </div>
 
         <div className="mx-4 mb-3 flex items-center gap-2.5 rounded-lg bg-slate-50 px-3 py-2.5">
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-400 text-[11px] font-bold text-white">
-            MTN
+            {user.entrepriseNom?.slice(0, 3).toUpperCase() ?? "MTN"}
           </div>
           <div className="leading-tight">
-            <p className="text-[13px] font-semibold text-slate-800">MTN-CI</p>
+            <p className="text-[13px] font-semibold text-slate-800">
+              {user.entrepriseNom ?? "Entreprise"}
+            </p>
             <p className="text-[11px] text-slate-400">Compte entreprise</p>
           </div>
           <ChevronDown className="ml-auto h-3.5 w-3.5 text-slate-400" />
@@ -218,23 +293,25 @@ export default function TableauDeBordPage() {
 
         <div className="flex items-center gap-3 border-t border-slate-100 px-4 py-4">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#0B3C53] text-xs font-bold text-white">
-            HT
+            {user.prenom?.[0]}
+            {user.nom?.[0]}
           </div>
           <div className="min-w-0 leading-tight">
-            <p className="truncate text-[13px] font-semibold text-slate-800">HASSANA Tioté</p>
-            <p className="truncate text-[11px] text-slate-400">SuperAdmin</p>
+            <p className="truncate text-[13px] font-semibold text-slate-800">
+              {user.nomComplet}
+            </p>
+            <p className="truncate text-[11px] text-slate-400">{user.role}</p>
           </div>
-          <LogOut className="ml-auto h-4 w-4 shrink-0 text-slate-300" />
+          <button onClick={logout} aria-label="Déconnexion">
+            <LogOut className="ml-auto h-4 w-4 shrink-0 text-slate-300 hover:text-red-400" />
+          </button>
         </div>
       </aside>
 
       {/* ===================== MAIN ===================== */}
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* ---------- HEADER ---------- */}
+        {/* HEADER */}
         <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
-          <button className="text-slate-500 lg:hidden" aria-label="Ouvrir le menu">
-            <SlidersHorizontal className="h-5 w-5" />
-          </button>
           <div>
             <h2 className="text-[15px] font-bold text-slate-900">
               Dashboard Négociations &amp; Économies
@@ -248,27 +325,27 @@ export default function TableauDeBordPage() {
               aria-label="Notifications"
             >
               <Bell className="h-5 w-5" />
-              <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
-                3
-              </span>
+              <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-red-500" />
             </button>
-
             <div className="flex items-center gap-2.5 border-l border-slate-200 pl-4">
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#0B3C53] text-sm font-bold text-white">
-                HT
+                {user.prenom?.[0]}
+                {user.nom?.[0]}
               </div>
               <div className="hidden leading-tight sm:block">
-                <p className="text-[13px] font-semibold text-slate-800">HASSANA Tioté</p>
-                <p className="text-[11px] text-slate-400">Direction Exécutive</p>
+                <p className="text-[13px] font-semibold text-slate-800">
+                  {user.nomComplet}
+                </p>
+                <p className="text-[11px] text-slate-400">{user.role}</p>
               </div>
               <ChevronDown className="h-4 w-4 text-slate-400" />
             </div>
           </div>
         </header>
 
-        {/* ---------- PAGE CONTENT ---------- */}
+        {/* PAGE CONTENT */}
         <main className="flex-1 px-6 py-6">
-          {/* Titre + filtres */}
+          {/* Titre + sélecteur de période */}
           <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="border-l-4 border-[#0B3C53] pl-3">
               <h1 className="text-2xl font-bold text-slate-900">
@@ -279,11 +356,22 @@ export default function TableauDeBordPage() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <button className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-[13px] font-medium text-slate-600 shadow-sm hover:bg-slate-50">
-                <Calendar className="h-4 w-4 text-slate-400" />
-                {formatPeriod(data.period.from, data.period.to)}
-                <ChevronDown className="h-4 w-4 text-slate-400" />
-              </button>
+              <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-[13px] text-slate-600 shadow-sm">
+                <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                <input
+                  type="date"
+                  value={periodFrom}
+                  onChange={(e) => setPeriodFrom(e.target.value)}
+                  className="w-28 outline-none text-[13px]"
+                />
+                <span className="text-slate-400">→</span>
+                <input
+                  type="date"
+                  value={periodTo}
+                  onChange={(e) => setPeriodTo(e.target.value)}
+                  className="w-28 outline-none text-[13px]"
+                />
+              </div>
               <button className="flex items-center gap-2 rounded-lg bg-[#0B3C53] px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm hover:bg-[#0B3C53]/90">
                 <SlidersHorizontal className="h-4 w-4" />
                 Filtres
@@ -291,257 +379,336 @@ export default function TableauDeBordPage() {
             </div>
           </div>
 
-          {/* KPI Cards */}
-          <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            {data.kpis.map((kpi) => {
-              const style = KPI_STYLES[kpi.id];
-              const Icon = style?.icon ?? Folder;
-              return (
-                <div
-                  key={kpi.id}
-                  className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-                >
-                  <div className="mb-3 flex items-start justify-between">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                      {kpi.label}
-                    </p>
-                    <div
-                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${style?.badge ?? "bg-slate-400"}`}
-                    >
-                      <Icon className="h-4 w-4 text-white" strokeWidth={2} />
-                    </div>
-                  </div>
-                  <p className="text-2xl font-bold tabular-nums text-slate-900">
-                    {formatNumber(kpi.value)}
-                    {kpi.unit && (
-                      <span className="ml-1 text-sm font-medium text-slate-400">{kpi.unit}</span>
-                    )}
-                  </p>
-                  <p
-                    className={`mt-2 text-[12px] font-semibold ${
-                      kpi.trend.direction === "up" ? "text-emerald-600" : "text-red-500"
-                    }`}
-                  >
-                    {kpi.trend.direction === "up" ? "↗" : "↘"}{" "}
-                    {kpi.id === "dossiers-ouverts"
-                      ? `-${formatNumber(kpi.trend.value)}`
-                      : `${kpi.trend.direction === "up" ? "+" : "-"}${formatNumber(kpi.trend.value)}${
-                          kpi.id === "taux-reduction" ? " pts" : "%"
-                        }`}{" "}
-                    <span className="font-normal text-slate-400">{kpi.trend.comparedTo}</span>
-                  </p>
-                </div>
-              );
-            })}
-          </div>
+          {/* État chargement */}
+          {isLoading && (
+            <div className="flex h-64 items-center justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-[#0B3C53]" />
+            </div>
+          )}
 
-          {/* Grille : Dossiers de négociation + Dossiers en cours / Argumentaires */}
-          <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
-            {/* Dossiers de négociation (tableau) */}
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-              <div className="mb-4 flex items-center gap-2">
-                <h2 className="text-[14px] font-bold text-slate-800">Dossiers de négociation</h2>
-                <Info className="h-3.5 w-3.5 text-slate-400" />
+          {error && !isLoading && (
+            <div className="flex h-64 flex-col items-center justify-center gap-3">
+              <AlertCircle className="h-10 w-10 text-red-400" />
+              <p className="text-[14px] text-slate-600">{error}</p>
+              <button
+                onClick={retry}
+                className="rounded-lg bg-[#0B3C53] px-4 py-2 text-[13px] font-semibold text-white"
+              >
+                Réessayer
+              </button>
+            </div>
+          )}
+
+          {data && !isLoading && (
+            <>
+              {/* KPI Cards */}
+              <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                {data.kpis.map((kpi) => {
+                  const style = KPI_STYLES[kpi.id];
+                  const Icon = style?.icon ?? Folder;
+                  return (
+                    <div
+                      key={kpi.id}
+                      className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                    >
+                      <div className="mb-3 flex items-start justify-between">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                          {kpi.label}
+                        </p>
+                        <div
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                            style?.badge ?? "bg-slate-400"
+                          }`}
+                        >
+                          <Icon className="h-4 w-4 text-white" strokeWidth={2} />
+                        </div>
+                      </div>
+                      <p className="text-2xl font-bold tabular-nums text-slate-900">
+                        {formatNumber(kpi.value)}
+                        {kpi.unit && (
+                          <span className="ml-1 text-sm font-medium text-slate-400">
+                            {kpi.unit}
+                          </span>
+                        )}
+                      </p>
+                      <p
+                        className={`mt-2 flex items-center gap-1 text-[12px] font-semibold ${
+                          kpi.trend.direction === "up"
+                            ? "text-emerald-600"
+                            : "text-red-500"
+                        }`}
+                      >
+                        {kpi.trend.direction === "up" ? (
+                          <TrendingUp className="h-3.5 w-3.5" />
+                        ) : (
+                          <TrendingDown className="h-3.5 w-3.5" />
+                        )}
+                        {kpi.trend.value}
+                        {kpi.trend.value < 100 ? "%" : ""}
+                        <span className="font-normal text-slate-400">
+                          {kpi.trend.comparedTo}
+                        </span>
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
 
-              <div className="-mx-5 overflow-x-auto">
-                <table className="w-full min-w-[640px] border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      <th className="px-5 py-2.5">Commune</th>
-                      <th className="px-3 py-2.5">Montant initial</th>
-                      <th className="px-3 py-2.5">Recalculé</th>
-                      <th className="px-3 py-2.5">Négocié</th>
-                      <th className="px-3 py-2.5">Économie</th>
-                      <th className="px-3 py-2.5">Prochaine action</th>
-                      <th className="px-3 py-2.5" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.negotiationFiles.map((file) => (
-                      <tr
-                        key={file.id}
-                        className="border-b border-slate-100 last:border-0 hover:bg-slate-50"
-                      >
-                        <td className="px-5 py-3 font-semibold text-slate-800">{file.commune}</td>
-                        <td className="whitespace-nowrap px-3 py-3 text-slate-600">
-                          {formatNumber(file.montantInitial)} FCFA
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-3 text-slate-600">
-                          {formatNumber(file.montantRecalcule)} FCFA
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-3 text-slate-600">
-                          {formatNumber(file.montantNegocie)} FCFA
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-3 font-bold text-emerald-600">
-                          {formatNumber(file.economie)} FCFA
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-3">
-                          <div className="flex items-center gap-2">
+              {/* Grille : Dossiers de négociation + Dossiers en cours / Argumentaires */}
+              <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
+                {/* Dossiers de négociation (tableau) */}
+                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
+                  <div className="mb-4 flex items-center gap-2">
+                    <h2 className="text-[14px] font-bold text-slate-800">
+                      Dossiers de négociation
+                    </h2>
+                    <Info className="h-3.5 w-3.5 text-slate-400" />
+                  </div>
+
+                  {data.negotiationFiles.length === 0 ? (
+                    <p className="py-8 text-center text-[13px] text-slate-400">
+                      Aucun dossier sur cette période.
+                    </p>
+                  ) : (
+                    <div className="-mx-5 overflow-x-auto">
+                      <table className="w-full min-w-[640px] border-collapse text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            <th className="px-5 py-2.5">Commune</th>
+                            <th className="px-3 py-2.5">Montant initial</th>
+                            <th className="px-3 py-2.5">Recalculé</th>
+                            <th className="px-3 py-2.5">Négocié</th>
+                            <th className="px-3 py-2.5">Économie</th>
+                            <th className="px-3 py-2.5">Prochaine action</th>
+                            <th className="px-3 py-2.5" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {data.negotiationFiles.map((file) => (
+                            <tr
+                              key={file.id}
+                              className="border-b border-slate-100 last:border-0 hover:bg-slate-50"
+                            >
+                              <td className="px-5 py-3 font-semibold text-slate-800">
+                                {file.commune}
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-3 text-slate-600">
+                                {formatNumber(Number(file.montantInitial))} FCFA
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-3 text-slate-600">
+                                {formatNumber(Number(file.montantRecalcule))} FCFA
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-3 text-slate-600">
+                                {file.montantNegocie
+                                  ? `${formatNumber(Number(file.montantNegocie))} FCFA`
+                                  : "—"}
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-3 font-bold text-emerald-600">
+                                {file.economie
+                                  ? `${formatNumber(Number(file.economie))} FCFA`
+                                  : "—"}
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-3">
+                                {file.nextAction ? (
+                                  <div className="flex items-center gap-2">
+                                    <span
+                                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${actionIconClasses(
+                                        file.nextAction.type as ActionType
+                                      )}`}
+                                    >
+                                      {actionIcon(file.nextAction.type as ActionType)}
+                                    </span>
+                                    <span className="text-slate-600">
+                                      {file.nextAction.label}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-300">—</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-3 text-right">
+                                <button
+                                  className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                                  aria-label="Plus d'options"
+                                >
+                                  <MoreVertical className="h-4 w-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  <Link
+                    href="/ordres-de-recettes"
+                    className="mt-4 inline-block text-[13px] font-semibold text-[#0B3C53] hover:underline"
+                  >
+                    Voir tous les dossiers →
+                  </Link>
+                </div>
+
+                {/* Colonne droite */}
+                <div className="flex flex-col gap-4 xl:col-span-1">
+                  {/* Dossiers en cours */}
+                  <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="mb-4 flex items-center gap-2">
+                      <h2 className="text-[14px] font-bold text-slate-800">
+                        Dossiers en cours
+                      </h2>
+                      <Info className="h-3.5 w-3.5 text-slate-400" />
+                    </div>
+                    {data.ongoingFiles.length === 0 ? (
+                      <p className="text-[13px] text-slate-400">
+                        Aucun dossier en cours.
+                      </p>
+                    ) : (
+                      <div className="space-y-4">
+                        {data.ongoingFiles.map((file) => (
+                          <div key={file.id} className="flex items-start gap-3">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-cyan-50 text-cyan-600">
+                              <CalendarClock className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[13px] font-semibold text-slate-800">
+                                {file.commune}
+                              </p>
+                              <p className="truncate text-[12px] text-slate-500">
+                                {file.nextAppointment}
+                              </p>
+                            </div>
                             <span
-                              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${actionIconClasses(
-                                file.nextAction.type
+                              className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${tagClasses(
+                                file.tag.color
                               )}`}
                             >
-                              {actionIcon(file.nextAction.type)}
+                              {file.tag.label}
                             </span>
-                            <span className="text-slate-600">{file.nextAction.label}</span>
                           </div>
-                        </td>
-                        <td className="px-3 py-3 text-right">
-                          <button
-                            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                            aria-label="Plus d'options"
+                        ))}
+                      </div>
+                    )}
+                    <button className="mt-4 text-[13px] font-semibold text-[#0B3C53] hover:underline">
+                      Voir tous les dossiers en cours →
+                    </button>
+                  </div>
+
+                  {/* Argumentaires prêts */}
+                  <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="mb-4 flex items-center gap-2">
+                      <h2 className="text-[14px] font-bold text-slate-800">
+                        Argumentaires prêts
+                      </h2>
+                      <Info className="h-3.5 w-3.5 text-slate-400" />
+                    </div>
+                    <div className="space-y-4">
+                      {data.readyArguments.map((arg) => (
+                        <div key={arg.id} className="flex items-center gap-3">
+                          <div
+                            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${readyArgumentIconClasses(
+                              arg.iconKey
+                            )}`}
                           >
-                            <MoreVertical className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <Link
-                href="/ordres-de-recettes"
-                className="mt-4 inline-block text-[13px] font-semibold text-[#0B3C53] hover:underline"
-              >
-                Voir tous les dossiers →
-              </Link>
-            </div>
-
-            {/* Colonne droite : Dossiers en cours + Argumentaires prêts */}
-            <div className="flex flex-col gap-4 xl:col-span-1">
-              {/* Dossiers en cours */}
-              <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="mb-4 flex items-center gap-2">
-                  <h2 className="text-[14px] font-bold text-slate-800">Dossiers en cours</h2>
-                  <Info className="h-3.5 w-3.5 text-slate-400" />
-                </div>
-                <div className="space-y-4">
-                  {data.ongoingFiles.map((file) => (
-                    <div key={file.id} className="flex items-start gap-3">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-cyan-50 text-cyan-600">
-                        <CalendarClock className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[13px] font-semibold text-slate-800">
-                          {file.commune}
-                        </p>
-                        <p className="truncate text-[12px] text-slate-500">
-                          {file.nextAppointment}
-                        </p>
-                      </div>
-                      <span
-                        className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${tagClasses(
-                          file.tag.color
-                        )}`}
-                      >
-                        {file.tag.label}
-                      </span>
+                            {readyArgumentIcon(arg.iconKey)}
+                          </div>
+                          <span className="flex-1 text-[13px] font-medium text-slate-700">
+                            {arg.label}
+                          </span>
+                          <span className="text-[13px] font-bold text-[#0B3C53]">
+                            {arg.count} dossiers
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                    <button className="mt-4 text-[13px] font-semibold text-[#0B3C53] hover:underline">
+                      Voir tous les argumentaires →
+                    </button>
+                  </div>
                 </div>
-                <button className="mt-4 text-[13px] font-semibold text-[#0B3C53] hover:underline">
-                  Voir tous les dossiers en cours →
-                </button>
               </div>
 
-              {/* Argumentaires prêts */}
-              <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="mb-4 flex items-center gap-2">
-                  <h2 className="text-[14px] font-bold text-slate-800">Argumentaires prêts</h2>
-                  <Info className="h-3.5 w-3.5 text-slate-400" />
+              {/* Économies mensuelles + Performance */}
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h2 className="text-[14px] font-bold text-slate-800">
+                      Économies mensuelles (FCFA)
+                    </h2>
+                    <button className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-[12px] font-medium text-slate-500 hover:bg-slate-50">
+                      FCFA
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart
+                      data={data.monthlySavings}
+                      margin={{ top: 20, right: 0, left: 0, bottom: 0 }}
+                    >
+                      <XAxis
+                        dataKey="month"
+                        tick={{ fontSize: 11, fill: "#64748b" }}
+                        axisLine={{ stroke: "#e2e8f0" }}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 11, fill: "#64748b" }}
+                        axisLine={false}
+                        tickLine={false}
+                        tickFormatter={(v) => `${v / 1_000_000}M`}
+                        domain={[
+                          0,
+                          Math.ceil(maxMonthlySaving / 10_000_000) *
+                            10_000_000 || 10_000_000,
+                        ]}
+                      />
+                      <Tooltip
+                        cursor={{ fill: "#f8fafc" }}
+                        formatter={(value: number) => [
+                          `${formatNumber(value)} FCFA`,
+                          "Économie",
+                        ]}
+                      />
+                      <Bar
+                        dataKey="amount"
+                        fill="#0B3C53"
+                        radius={[4, 4, 0, 0]}
+                        barSize={48}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <Link
+                    href="/analyse-fiscale"
+                    className="mt-2 inline-block text-[13px] font-semibold text-[#0B3C53] hover:underline"
+                  >
+                    Voir l&apos;analyse complète →
+                  </Link>
                 </div>
-                <div className="space-y-4">
-                  {data.readyArguments.map((arg) => (
-                    <div key={arg.id} className="flex items-center gap-3">
-                      <div
-                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${readyArgumentIconClasses(
-                          arg.iconKey
-                        )}`}
-                      >
-                        {readyArgumentIcon(arg.iconKey)}
-                      </div>
-                      <span className="flex-1 text-[13px] font-medium text-slate-700">
-                        {arg.label}
-                      </span>
-                      <span className="text-[13px] font-bold text-[#0B3C53]">
-                        {arg.count} dossiers
-                      </span>
+
+                {/* Performance */}
+                <div className="flex flex-col justify-center gap-4 rounded-xl border border-slate-200 bg-gradient-to-br from-[#0B3C53] to-[#0E4F66] p-6 text-white shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-400">
+                      <Trophy className="h-6 w-6 text-white" />
                     </div>
-                  ))}
+                    <h2 className="text-[14px] font-bold">Performance</h2>
+                  </div>
+                  <p className="text-[13px] leading-relaxed text-white/80">
+                    Les négociations menées sur la période ont permis une
+                    réduction moyenne de
+                  </p>
+                  <p className="text-4xl font-bold">
+                    {data.performance.averageReductionPercent} %
+                  </p>
+                  <p className="text-[13px] text-white/70">
+                    soit{" "}
+                    {formatNumber(data.performance.totalSavingsAmount)} FCFA
+                    d&apos;économies obtenues.
+                  </p>
                 </div>
-                <button className="mt-4 text-[13px] font-semibold text-[#0B3C53] hover:underline">
-                  Voir tous les argumentaires →
-                </button>
               </div>
-            </div>
-          </div>
-
-          {/* Économies mensuelles + Performance */}
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-[14px] font-bold text-slate-800">
-                  Économies mensuelles (FCFA)
-                </h2>
-                <button className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-[12px] font-medium text-slate-500 hover:bg-slate-50">
-                  FCFA
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart
-                  data={data.monthlySavings}
-                  margin={{ top: 20, right: 0, left: 0, bottom: 0 }}
-                >
-                  <XAxis
-                    dataKey="month"
-                    tick={{ fontSize: 11, fill: "#64748b" }}
-                    axisLine={{ stroke: "#e2e8f0" }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: "#64748b" }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(v) => `${v / 1_000_000}M`}
-                    domain={[0, Math.ceil(maxMonthlySaving / 10_000_000) * 10_000_000]}
-                  />
-                  <Tooltip
-                    cursor={{ fill: "#f8fafc" }}
-                    formatter={(value) => [`${formatNumber(value as number)} FCFA`, "Économie"]}
-                  />
-                  <Bar dataKey="amount" fill="#0B3C53" radius={[4, 4, 0, 0]} barSize={48} />
-                </BarChart>
-              </ResponsiveContainer>
-              <Link
-                href="/analyse-fiscale"
-                className="mt-2 inline-block text-[13px] font-semibold text-[#0B3C53] hover:underline"
-              >
-                Voir l&apos;analyse complète →
-              </Link>
-            </div>
-
-            {/* Performance */}
-            <div className="flex flex-col justify-center gap-4 rounded-xl border border-slate-200 bg-gradient-to-br from-[#0B3C53] to-[#0E4F66] p-6 text-white shadow-sm">
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-400">
-                  <Trophy className="h-6 w-6 text-white" />
-                </div>
-                <h2 className="text-[14px] font-bold">Performance</h2>
-              </div>
-              <p className="text-[13px] leading-relaxed text-white/80">
-                Les négociations menées sur la période ont permis une réduction moyenne de
-              </p>
-              <p className="text-4xl font-bold">{data.performance.averageReductionPercent} %</p>
-              <p className="text-[13px] text-white/70">
-                soit {formatNumber(data.performance.totalSavingsAmount)} FCFA d&apos;économies
-                obtenues.
-              </p>
-            </div>
-          </div>
+            </>
+          )}
         </main>
       </div>
     </div>
