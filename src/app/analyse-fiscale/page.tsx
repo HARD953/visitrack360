@@ -38,6 +38,9 @@ import {
   X,
   RefreshCw,
   Search,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import {
   BarChart,
@@ -160,7 +163,7 @@ const RISQUE_BADGE: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Navigation (dupliquée volontairement)
+// Navigation
 // ---------------------------------------------------------------------------
 
 const NAV_SECTIONS = [
@@ -197,22 +200,24 @@ const ACTIVE_HREF = "/analyse-fiscale";
 // Composants UI locaux
 // ---------------------------------------------------------------------------
 
-function FormField({ label, children }: { label: string; children: ReactNode }) {
+function FormField({ label, children, required }: { label: string; children: ReactNode; required?: boolean }) {
   return (
     <div>
-      <label className="mb-1.5 block text-[12px] font-medium text-slate-500">{label}</label>
+      <label className="mb-1.5 block text-[12px] font-medium text-slate-500">
+        {label} {required && <span className="text-red-500">*</span>}
+      </label>
       {children}
     </div>
   );
 }
 
-// Correction 1: Ajout de la propriété required au composant TextInput
 interface TextInputProps {
   value: string | number | null;
   onChange: (v: string) => void;
   type?: string;
   placeholder?: string;
   required?: boolean;
+  min?: string;
 }
 
 function TextInput({
@@ -221,6 +226,7 @@ function TextInput({
   type = "text",
   placeholder = "",
   required = false,
+  min,
 }: TextInputProps) {
   return (
     <input
@@ -229,6 +235,7 @@ function TextInput({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       required={required}
+      min={min}
       className="w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-800 outline-none focus:border-[#0B3C53] focus:ring-1 focus:ring-[#0B3C53]/20"
     />
   );
@@ -275,10 +282,33 @@ export default function AnalyseFiscalePage() {
   const router = useRouter();
 
   const [activeTab, setActiveTab] = useState<Tab>("dossiers");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     if (!user) router.replace("/login");
   }, [user, router]);
+
+  useEffect(() => {
+    function handleResize() {
+      if (window.innerWidth >= 1024) {
+        setSidebarOpen(false);
+      }
+    }
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
+    if (sidebarOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [sidebarOpen]);
 
   if (!user) return null;
 
@@ -291,16 +321,129 @@ export default function AnalyseFiscalePage() {
 
   return (
     <div className="flex min-h-screen bg-[#F5F7FA]">
-      {/* ===================== SIDEBAR ===================== */}
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
-        <div className="flex items-center gap-2.5 px-5 py-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#0B3C53]">
-            <span className="text-base font-bold text-white">V</span>
+      {/* ===================== OVERLAY MOBILE ===================== */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-slate-900/40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* ===================== SIDEBAR DESKTOP ===================== */}
+      <aside
+        className={`hidden flex-col border-r border-slate-200 bg-white transition-all duration-300 ease-in-out lg:flex ${
+          sidebarCollapsed ? "w-16" : "w-64"
+        } shrink-0`}
+      >
+        <div className={`flex items-center py-4 ${sidebarCollapsed ? "flex-col gap-2 px-2" : "justify-between px-4"}`}>
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#0B3C53]">
+              <span className="text-base font-bold text-white">V</span>
+            </div>
+            {!sidebarCollapsed && (
+              <div>
+                <p className="text-[15px] font-bold leading-tight text-slate-900">VisiTrack360</p>
+                <p className="text-[11px] text-slate-400">Audit de Visibilité</p>
+              </div>
+            )}
           </div>
-          <div>
-            <p className="text-[15px] font-bold leading-tight text-slate-900">VisiTrack360</p>
-            <p className="text-[11px] text-slate-400">Audit de Visibilité</p>
+          <button
+            onClick={() => setSidebarCollapsed((v) => !v)}
+            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100"
+            aria-label={sidebarCollapsed ? "Afficher le menu" : "Réduire le menu"}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </button>
+        </div>
+
+        {!sidebarCollapsed ? (
+          <div className="mx-4 mb-3 flex items-center gap-2.5 rounded-lg bg-slate-50 px-3 py-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-400 text-[11px] font-bold text-white">
+              {user.entrepriseNom?.slice(0, 3).toUpperCase() ?? "MTN"}
+            </div>
+            <div className="leading-tight">
+              <p className="text-[13px] font-semibold text-slate-800">{user.entrepriseNom ?? "Entreprise"}</p>
+              <p className="text-[11px] text-slate-400">Compte entreprise</p>
+            </div>
+            <ChevronDown className="ml-auto h-3.5 w-3.5 text-slate-400" />
           </div>
+        ) : (
+          <div className="mx-auto mb-3 flex h-8 w-8 items-center justify-center rounded-full bg-amber-400 text-[11px] font-bold text-white">
+            {user.entrepriseNom?.slice(0, 3).toUpperCase() ?? "MTN"}
+          </div>
+        )}
+
+        <nav className={`flex-1 space-y-5 overflow-y-auto pb-4 pt-2 ${sidebarCollapsed ? "px-2" : "px-3"}`}>
+          {NAV_SECTIONS.map((section) => (
+            <div key={section.label}>
+              {!sidebarCollapsed && (
+                <p className="px-2.5 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  {section.label}
+                </p>
+              )}
+              {sidebarCollapsed && <div className="my-2 h-px bg-slate-100" />}
+              <div className="space-y-1">
+                {section.items.map((item) => {
+                  const isActive = item.href === ACTIVE_HREF;
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      title={sidebarCollapsed ? item.label : undefined}
+                      className={`flex items-center rounded-lg py-2.5 text-[13px] font-medium transition-colors ${
+                        sidebarCollapsed ? "justify-center px-2" : "gap-2.5 px-2.5"
+                      } ${
+                        isActive ? "bg-[#0B3C53] text-white shadow-sm" : "text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" strokeWidth={2} />
+                      {!sidebarCollapsed && item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </nav>
+
+        <div className={`flex items-center border-t border-slate-100 py-4 ${sidebarCollapsed ? "flex-col gap-2 px-2" : "gap-3 px-4"}`}>
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#0B3C53] text-xs font-bold text-white">
+            {user.prenom?.[0]}{user.nom?.[0]}
+          </div>
+          {!sidebarCollapsed && (
+            <div className="min-w-0 leading-tight">
+              <p className="truncate text-[13px] font-semibold text-slate-800">{user.nomComplet}</p>
+              <p className="truncate text-[11px] text-slate-400">{user.role}</p>
+            </div>
+          )}
+          <button onClick={logout} aria-label="Déconnexion" className={sidebarCollapsed ? "" : "ml-auto"}>
+            <LogOut className="h-4 w-4 shrink-0 text-slate-300 hover:text-red-400" />
+          </button>
+        </div>
+      </aside>
+
+      {/* ===================== SIDEBAR MOBILE ===================== */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-slate-200 bg-white shadow-xl transition-transform duration-300 ease-in-out lg:hidden ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+        aria-label="Menu de navigation"
+      >
+        <div className="flex items-center justify-between px-4 py-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#0B3C53]">
+              <span className="text-base font-bold text-white">V</span>
+            </div>
+            <div>
+              <p className="text-[15px] font-bold leading-tight text-slate-900">VisiTrack360</p>
+              <p className="text-[11px] text-slate-400">Audit de Visibilité</p>
+            </div>
+          </div>
+          <button onClick={() => setSidebarOpen(false)} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100">
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
         <div className="mx-4 mb-3 flex items-center gap-2.5 rounded-lg bg-slate-50 px-3 py-2.5">
@@ -328,6 +471,7 @@ export default function AnalyseFiscalePage() {
                     <Link
                       key={item.href}
                       href={item.href}
+                      onClick={() => setSidebarOpen(false)}
                       className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-[13px] font-medium transition-colors ${
                         isActive ? "bg-[#0B3C53] text-white shadow-sm" : "text-slate-600 hover:bg-slate-50"
                       }`}
@@ -350,8 +494,8 @@ export default function AnalyseFiscalePage() {
             <p className="truncate text-[13px] font-semibold text-slate-800">{user.nomComplet}</p>
             <p className="truncate text-[11px] text-slate-400">{user.role}</p>
           </div>
-          <button onClick={logout} aria-label="Déconnexion">
-            <LogOut className="ml-auto h-4 w-4 shrink-0 text-slate-300 hover:text-red-400" />
+          <button onClick={logout} aria-label="Déconnexion" className="ml-auto">
+            <LogOut className="h-4 w-4 shrink-0 text-slate-300 hover:text-red-400" />
           </button>
         </div>
       </aside>
@@ -359,17 +503,33 @@ export default function AnalyseFiscalePage() {
       {/* ===================== MAIN ===================== */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* HEADER */}
-        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
-          <div>
-            <h2 className="text-[15px] font-bold text-slate-900">Analyse fiscale</h2>
-            <p className="text-[12px] text-slate-400">Gaps · Simulation · Dossiers</p>
+        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50 lg:hidden"
+              aria-label="Ouvrir le menu"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <button
+              onClick={() => setSidebarCollapsed((v) => !v)}
+              className="hidden rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50 lg:block"
+              aria-label={sidebarCollapsed ? "Afficher le menu" : "Masquer le menu"}
+            >
+              {sidebarCollapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+            </button>
+            <div>
+              <h2 className="text-[15px] font-bold text-slate-900">Analyse fiscale</h2>
+              <p className="hidden text-[12px] text-slate-400 sm:block">Gaps · Simulation · Dossiers</p>
+            </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 sm:gap-4">
             <button className="relative rounded-full p-2 text-slate-500 hover:bg-slate-100">
               <Bell className="h-5 w-5" />
               <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-red-500" />
             </button>
-            <div className="flex items-center gap-2.5 border-l border-slate-200 pl-4">
+            <div className="flex items-center gap-2.5 border-l border-slate-200 pl-3 sm:pl-4">
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#0B3C53] text-sm font-bold text-white">
                 {user.prenom?.[0]}{user.nom?.[0]}
               </div>
@@ -377,15 +537,14 @@ export default function AnalyseFiscalePage() {
                 <p className="text-[13px] font-semibold text-slate-800">{user.nomComplet}</p>
                 <p className="text-[11px] text-slate-400">{user.role}</p>
               </div>
-              <ChevronDown className="h-4 w-4 text-slate-400" />
             </div>
           </div>
         </header>
 
-        <main className="flex-1 px-6 py-6">
+        <main className="flex-1 px-4 py-6 sm:px-6">
           {/* Titre */}
           <div className="mb-6 border-l-4 border-[#0B3C53] pl-3">
-            <h1 className="text-2xl font-bold text-slate-900">Analyse fiscale</h1>
+            <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">Analyse fiscale</h1>
             <p className="mt-1 text-[13px] text-slate-500">
               Dossiers fiscaux, simulation de campagnes et analyse des écarts.
             </p>
@@ -400,7 +559,7 @@ export default function AnalyseFiscalePage() {
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`flex shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-medium transition-colors ${
+                className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-[13px] font-medium whitespace-nowrap transition-colors sm:px-4 ${
                   activeTab === tab.key
                     ? "bg-[#0B3C53] text-white shadow-sm"
                     : "text-slate-600 hover:bg-slate-50"
@@ -521,6 +680,7 @@ function DossiersFiscauxTab() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<DossierFiscal | null>(null);
@@ -530,6 +690,7 @@ function DossiersFiscauxTab() {
     fiscaliteEstimee: "",
     montantReclame: "",
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => { load(); }, []);
 
@@ -549,6 +710,7 @@ function DossiersFiscauxTab() {
   function openCreate() {
     setEditing(null);
     setForm({ commune: "", fiscaliteEstimee: "", montantReclame: "" });
+    setValidationErrors({});
     setModalOpen(true);
   }
 
@@ -559,31 +721,65 @@ function DossiersFiscauxTab() {
       fiscaliteEstimee: String(d.fiscaliteEstimee),
       montantReclame: String(d.montantReclame),
     });
+    setValidationErrors({});
     setModalOpen(true);
+  }
+
+  function validateForm(): boolean {
+    const errors: Record<string, string> = {};
+    
+    if (!form.commune?.trim()) {
+      errors.commune = "La commune est obligatoire";
+    }
+    if (!form.fiscaliteEstimee || parseFloat(form.fiscaliteEstimee) <= 0) {
+      errors.fiscaliteEstimee = "La fiscalité estimée est obligatoire et doit être supérieure à 0";
+    }
+    if (!form.montantReclame || parseFloat(form.montantReclame) <= 0) {
+      errors.montantReclame = "Le montant réclamé est obligatoire et doit être supérieur à 0";
+    }
+
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    
+    if (!validateForm()) {
+        return;
+    }
+
+    setIsSubmitting(true);
     try {
-      const payload = {
-        commune: form.commune,
-        fiscalite_estimee: parseFloat(form.fiscaliteEstimee),
-        montant_reclame: parseFloat(form.montantReclame),
-      };
-      if (editing) {
-        const updated = await apiFetch<DossierFiscal>(`/api/dossiers-fiscaux/${editing.id}/`, {
-          method: "PATCH", body: JSON.stringify(payload),
-        });
-        setDossiers((prev) => prev.map((d) => d.id === updated.id ? updated : d));
-      } else {
-        const created = await apiFetch<DossierFiscal>("/api/dossiers-fiscaux/", {
-          method: "POST", body: JSON.stringify(payload),
-        });
-        setDossiers((prev) => [created, ...prev]);
-      }
-      setModalOpen(false);
-    } catch {
-      alert("Erreur lors de la sauvegarde.");
+        const fiscaliteValue = parseFloat(form.fiscaliteEstimee);
+        const montantValue = parseFloat(form.montantReclame);
+        
+        const payload = {
+          commune: form.commune.trim(),
+          fiscaliteEstimee: fiscaliteValue,
+          montantReclame: montantValue,
+        };
+        
+        if (editing) {
+          const updated = await apiFetch<DossierFiscal>(`/api/dossiers-fiscaux/${editing.id}/`, {
+            method: "PATCH", 
+            body: JSON.stringify(payload),
+          });
+          setDossiers((prev) => prev.map((d) => d.id === updated.id ? updated : d));
+        } else {
+          const created = await apiFetch<DossierFiscal>("/api/dossiers-fiscaux/", {
+            method: "POST", 
+            body: JSON.stringify(payload),
+          });
+          setDossiers((prev) => [created, ...prev]);
+        }
+        setModalOpen(false);
+        setValidationErrors({});
+    } catch (error) {
+      console.error("Erreur lors de la sauvegarde:", error);
+      alert("Erreur lors de la sauvegarde. Vérifiez que tous les champs sont correctement remplis.");
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -616,7 +812,7 @@ function DossiersFiscauxTab() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="relative flex-1 max-w-sm">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
@@ -713,37 +909,93 @@ function DossiersFiscauxTab() {
               <h2 className="text-[16px] font-bold text-slate-900">
                 {editing ? "Modifier le dossier" : "Nouveau dossier fiscal"}
               </h2>
-              <button onClick={() => setModalOpen(false)} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100">
+              <button 
+                onClick={() => {
+                  setModalOpen(false);
+                  setValidationErrors({});
+                }} 
+                className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100"
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
+            
+            {Object.keys(validationErrors).length > 0 && (
+              <div className="mx-6 mt-4 rounded-lg border border-red-200 bg-red-50 p-3">
+                <ul className="list-disc pl-4 text-sm text-red-600">
+                  {Object.entries(validationErrors).map(([key, message]) => (
+                    <li key={key}>{message}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
             <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
-              <FormField label="Commune *">
+              <FormField label="Commune *" required>
                 <TextInput 
                   value={form.commune} 
-                  onChange={(v) => setForm((f) => ({ ...f, commune: v }))} 
+                  onChange={(v) => {
+                    setForm((f) => ({ ...f, commune: v }));
+                    if (validationErrors.commune) {
+                      setValidationErrors((prev) => ({ ...prev, commune: "" }));
+                    }
+                  }} 
                   required 
+                  placeholder="ex: Cocody"
                 />
               </FormField>
-              <FormField label="Fiscalité estimée (FCFA) *">
+              
+              <FormField label="Fiscalité estimée (FCFA) *" required>
                 <TextInput 
                   type="number" 
                   value={form.fiscaliteEstimee} 
-                  onChange={(v) => setForm((f) => ({ ...f, fiscaliteEstimee: v }))}
+                  onChange={(v) => {
+                    setForm((f) => ({ ...f, fiscaliteEstimee: v }));
+                    if (validationErrors.fiscaliteEstimee) {
+                      setValidationErrors((prev) => ({ ...prev, fiscaliteEstimee: "" }));
+                    }
+                  }}
                   required
+                  min="0"
+                  placeholder="ex: 1000000"
                 />
               </FormField>
-              <FormField label="Montant réclamé (FCFA) *">
+              
+              <FormField label="Montant réclamé (FCFA) *" required>
                 <TextInput 
                   type="number" 
                   value={form.montantReclame} 
-                  onChange={(v) => setForm((f) => ({ ...f, montantReclame: v }))}
+                  onChange={(v) => {
+                    setForm((f) => ({ ...f, montantReclame: v }));
+                    if (validationErrors.montantReclame) {
+                      setValidationErrors((prev) => ({ ...prev, montantReclame: "" }));
+                    }
+                  }}
                   required
+                  min="0"
+                  placeholder="ex: 500000"
                 />
               </FormField>
+              
               <div className="flex justify-end gap-3 pt-2">
-                <button type="button" onClick={() => setModalOpen(false)} className="rounded-lg border border-slate-200 px-4 py-2.5 text-[13px] font-medium text-slate-600 hover:bg-slate-50">Annuler</button>
-                <button type="submit" className="rounded-lg bg-[#0B3C53] px-5 py-2.5 text-[13px] font-semibold text-white">{editing ? "Enregistrer" : "Créer"}</button>
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    setModalOpen(false);
+                    setValidationErrors({});
+                  }} 
+                  className="rounded-lg border border-slate-200 px-4 py-2.5 text-[13px] font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Annuler
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isSubmitting}
+                  className="flex items-center gap-2 rounded-lg bg-[#0B3C53] px-5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#0B3C53]/90 disabled:opacity-60"
+                >
+                  {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {editing ? "Enregistrer" : "Créer"}
+                </button>
               </div>
             </form>
           </div>
@@ -895,7 +1147,6 @@ function AnalyseGapsTab() {
                 ))}
               </div>
 
-              {/* Barre de progression gap */}
               <div className="mb-3">
                 <div className="mb-1 flex items-center justify-between text-[12px]">
                   <span className="text-slate-500">Gap / Montant réclamé</span>
@@ -928,7 +1179,7 @@ function AnalyseGapsTab() {
 }
 
 // ===========================================================================
-// Onglet Simulation fiscale
+// Onglet Simulation fiscale - CORRIGÉ
 // ===========================================================================
 
 function SimulationTab() {
@@ -944,6 +1195,7 @@ function SimulationTab() {
     marque: "",
     commune: "",
     region: "",
+    district: "",
     typeSupport: "",
     canal: "",
     surface: "",
@@ -951,7 +1203,7 @@ function SimulationTab() {
     quantite: "1",
     tauxTSP: "5",
     odpApplicable: false,
-    taxesCommunales: true,
+    taxesCommunales: false,
   });
 
   useEffect(() => { load(); }, []);
@@ -967,38 +1219,42 @@ function SimulationTab() {
     }
   }
 
-  async function handleSubmit(e: FormEvent) {
+    async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setIsCalculating(true);
     try {
-      const payload = {
+        const payload = {
         nom: form.nom,
         campagne: form.campagne,
         marque: form.marque,
         commune: form.commune,
         region: form.region,
-        type_support: form.typeSupport,
-        canal: form.canal,
+        district: form.district || "",
+        typeSupport: form.typeSupport,      // ← camelCase, mappé par le serializer
+        canal: form.canal || "",
         surface: form.surface ? parseFloat(form.surface) : null,
-        duree_mois: parseInt(form.dureesMois),
-        quantite: parseInt(form.quantite),
-        taux_tsp: parseFloat(form.tauxTSP),
-        odp_applicable: form.odpApplicable,
-        taxes_communales: form.taxesCommunales,
-      };
-      const created = await apiFetch<Simulation>("/api/simulations/", {
+        dureesMois: parseInt(form.dureesMois) || 12,   // ← camelCase
+        quantite: parseInt(form.quantite) || 1,
+        tauxTSP: parseFloat(form.tauxTSP) || 5,        // ← camelCase
+        odpApplicable: form.odpApplicable,              // ← camelCase
+        taxesCommunales: form.taxesCommunales,          // ← camelCase
+        // ← PLUS de coutTSP, coutODP, coutTotal, riqueFiscal, statut
+        };
+
+        const created = await apiFetch<Simulation>("/api/simulations/", {
         method: "POST",
         body: JSON.stringify(payload),
-      });
-      setSimulations((prev) => [created, ...prev]);
-      setResultModal(created);
-      setModalOpen(false);
-    } catch {
-      alert("Erreur lors de la simulation.");
+        });
+        setSimulations((prev) => [created, ...prev]);
+        setResultModal(created);
+        setModalOpen(false);
+    } catch (error) {
+        console.error("Erreur:", error);
+        alert("Erreur lors de la simulation.");
     } finally {
-      setIsCalculating(false);
+        setIsCalculating(false);
     }
-  }
+    }
 
   async function handleDelete(id: number) {
     try {
@@ -1108,7 +1364,7 @@ function SimulationTab() {
         </div>
       )}
 
-      {/* Modal création simulation */}
+      {/* Modal création simulation - CORRIGÉE */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
           <div className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl bg-white shadow-xl">
@@ -1120,18 +1376,33 @@ function SimulationTab() {
             </div>
 
             <form onSubmit={handleSubmit} className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
-              {/* Identification */}
+              {/* Identification - tous les champs sont maintenant remplis par défaut */}
               <div>
                 <p className="mb-3 text-[11px] font-bold uppercase tracking-widest text-slate-400">Identification</p>
                 <div className="grid grid-cols-3 gap-4">
                   <FormField label="Nom de la simulation *">
-                    <TextInput value={form.nom} onChange={(v) => setForm((f) => ({ ...f, nom: v }))} required />
+                    <TextInput 
+                      value={form.nom} 
+                      onChange={(v) => setForm((f) => ({ ...f, nom: v }))} 
+                      required 
+                      placeholder="ex: Campagne Q4"
+                    />
                   </FormField>
-                  <FormField label="Campagne">
-                    <TextInput value={form.campagne} onChange={(v) => setForm((f) => ({ ...f, campagne: v }))} />
+                  <FormField label="Campagne *">
+                    <TextInput 
+                      value={form.campagne} 
+                      onChange={(v) => setForm((f) => ({ ...f, campagne: v }))} 
+                      required
+                      placeholder="ex: Noël 2024"
+                    />
                   </FormField>
-                  <FormField label="Marque">
-                    <TextInput value={form.marque} onChange={(v) => setForm((f) => ({ ...f, marque: v }))} />
+                  <FormField label="Marque *">
+                    <TextInput 
+                      value={form.marque} 
+                      onChange={(v) => setForm((f) => ({ ...f, marque: v }))} 
+                      required
+                      placeholder="ex: MTN"
+                    />
                   </FormField>
                 </div>
               </div>
@@ -1139,12 +1410,28 @@ function SimulationTab() {
               {/* Zone */}
               <div>
                 <p className="mb-3 text-[11px] font-bold uppercase tracking-widest text-slate-400">Zone de déploiement</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField label="Commune">
-                    <TextInput value={form.commune} onChange={(v) => setForm((f) => ({ ...f, commune: v }))} placeholder="ex: Plateau" />
+                <div className="grid grid-cols-3 gap-4">
+                  <FormField label="Commune *">
+                    <TextInput 
+                      value={form.commune} 
+                      onChange={(v) => setForm((f) => ({ ...f, commune: v }))} 
+                      required
+                      placeholder="ex: Plateau"
+                    />
                   </FormField>
                   <FormField label="Région">
-                    <TextInput value={form.region} onChange={(v) => setForm((f) => ({ ...f, region: v }))} placeholder="ex: Abidjan" />
+                    <TextInput 
+                      value={form.region} 
+                      onChange={(v) => setForm((f) => ({ ...f, region: v }))} 
+                      placeholder="ex: Abidjan"
+                    />
+                  </FormField>
+                  <FormField label="District">
+                    <TextInput 
+                      value={form.district} 
+                      onChange={(v) => setForm((f) => ({ ...f, district: v }))} 
+                      placeholder="ex: Abidjan"
+                    />
                   </FormField>
                 </div>
               </div>
@@ -1153,12 +1440,13 @@ function SimulationTab() {
               <div>
                 <p className="mb-3 text-[11px] font-bold uppercase tracking-widest text-slate-400">Support publicitaire</p>
                 <div className="grid grid-cols-3 gap-4">
-                  <FormField label="Type de support">
+                  <FormField label="Type de support *">
                     <SelectInput
                       value={form.typeSupport}
                       onChange={(v) => setForm((f) => ({ ...f, typeSupport: v }))}
                       options={["Panneau 4x3", "Bâche", "Totem", "Vitrine", "Panneau lumineux"]}
                       placeholder="— Choisir —"
+                      required
                     />
                   </FormField>
                   <FormField label="Canal">
@@ -1170,13 +1458,31 @@ function SimulationTab() {
                     />
                   </FormField>
                   <FormField label="Surface (m²)">
-                    <TextInput type="number" value={form.surface} onChange={(v) => setForm((f) => ({ ...f, surface: v }))} placeholder="ex: 12" />
+                    <TextInput 
+                      type="number" 
+                      value={form.surface} 
+                      onChange={(v) => setForm((f) => ({ ...f, surface: v }))} 
+                      placeholder="ex: 12" 
+                      min="0"
+                    />
                   </FormField>
-                  <FormField label="Durée (mois)">
-                    <TextInput type="number" value={form.dureesMois} onChange={(v) => setForm((f) => ({ ...f, dureesMois: v }))} />
+                  <FormField label="Durée (mois) *">
+                    <TextInput 
+                      type="number" 
+                      value={form.dureesMois} 
+                      onChange={(v) => setForm((f) => ({ ...f, dureesMois: v }))} 
+                      required
+                      min="1"
+                    />
                   </FormField>
-                  <FormField label="Quantité">
-                    <TextInput type="number" value={form.quantite} onChange={(v) => setForm((f) => ({ ...f, quantite: v }))} />
+                  <FormField label="Quantité *">
+                    <TextInput 
+                      type="number" 
+                      value={form.quantite} 
+                      onChange={(v) => setForm((f) => ({ ...f, quantite: v }))} 
+                      required
+                      min="1"
+                    />
                   </FormField>
                 </div>
               </div>
@@ -1185,8 +1491,15 @@ function SimulationTab() {
               <div>
                 <p className="mb-3 text-[11px] font-bold uppercase tracking-widest text-slate-400">Paramètres fiscaux</p>
                 <div className="grid grid-cols-3 gap-4">
-                  <FormField label="Taux TSP (%)">
-                    <TextInput type="number" value={form.tauxTSP} onChange={(v) => setForm((f) => ({ ...f, tauxTSP: v }))} placeholder="5" />
+                  <FormField label="Taux TSP (%) *">
+                    <TextInput 
+                      type="number" 
+                      value={form.tauxTSP} 
+                      onChange={(v) => setForm((f) => ({ ...f, tauxTSP: v }))} 
+                      required
+                      min="0"
+                      placeholder="5"
+                    />
                   </FormField>
                   <div className="col-span-2 flex items-end gap-6 pb-2">
                     <label className="flex cursor-pointer items-center gap-2 text-[13px] text-slate-700">
@@ -1286,6 +1599,8 @@ function SimulationTab() {
                   ["Durée", `${resultModal.dureesMois} mois`],
                   ["Quantité", String(resultModal.quantite)],
                   ["Taux TSP", `${resultModal.tauxTSP}%`],
+                  ["ODP applicable", resultModal.odpApplicable ? "Oui" : "Non"],
+                  ["Taxes communales", resultModal.taxesCommunales ? "Oui" : "Non"],
                 ].map(([label, value]) => (
                   <div key={label} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
                     <span className="text-slate-400">{label}</span>

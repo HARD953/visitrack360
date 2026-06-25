@@ -664,8 +664,8 @@ export default function TableauDeBordPage() {
                       />
                       <Tooltip
                         cursor={{ fill: "#f8fafc" }}
-                        formatter={(value: number) => [
-                          `${formatNumber(value)} FCFA`,
+                        formatter={(value) => [
+                          `${formatNumber(Number(value))} FCFA`,
                           "Économie",
                         ]}
                       />

@@ -47,6 +47,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { apiFetch, getAccessToken } from "@/lib/api/client";
 import type { SupportPublicitaire, EtatSupport, Canal, Visibilite } from "@/types/dashboard";
+
 // ---------------------------------------------------------------------------
 // Leaflet chargé dynamiquement (contrainte SSR)
 // ---------------------------------------------------------------------------
@@ -86,9 +87,9 @@ interface Support {
   longitude: number | null;
   typeSupport: string;
   surface: number | null;
-  nombreSupport: number | null;
-  nombreFace: number | null;
-  surfaceODP: number | null;
+  nombreSupport: number;
+  nombreFace: number;
+  surfaceODP: number;
   canal: string;
   etatSupport: string;
   typeSite: string;
@@ -202,12 +203,12 @@ function emptyForm(): Partial<Support> & {
     longitude: null,
     typeSupport: "",
     surface: null,
-    nombreSupport: null,
-    nombreFace: null,
-    surfaceODP: null,
+    nombreSupport: 1,
+    nombreFace: 1,
+    surfaceODP: 0,
     canal: "",
     etatSupport: "Bon",
-    typeSite: "",
+    typeSite: "Permanent",
     visibilite: "Bonne",
     description: "",
     observation: "",
@@ -282,11 +283,11 @@ function SectionTitle({ children }: { children: ReactNode }) {
   );
 }
 
-function FormField({ label, children }: { label: string; children: ReactNode }) {
+function FormField({ label, children, required }: { label: string; children: ReactNode; required?: boolean }) {
   return (
     <div>
       <label className="mb-1.5 block text-[12px] font-medium text-slate-500">
-        {label}
+        {label} {required && <span className="text-red-500">*</span>}
       </label>
       {children}
     </div>
@@ -298,11 +299,13 @@ function TextInput({
   onChange,
   type = "text",
   placeholder = "",
+  required = false,
 }: {
   value: string | number | null;
   onChange: (v: string) => void;
   type?: string;
   placeholder?: string;
+  required?: boolean;
 }) {
   return (
     <input
@@ -310,6 +313,7 @@ function TextInput({
       value={value ?? ""}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
+      required={required}
       className="w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-800 outline-none focus:border-[#0B3C53] focus:ring-1 focus:ring-[#0B3C53]/20"
     />
   );
@@ -320,16 +324,19 @@ function SelectInput({
   onChange,
   options,
   placeholder,
+  required = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   options: string[];
   placeholder?: string;
+  required?: boolean;
 }) {
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      required={required}
       className="w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-800 outline-none focus:border-[#0B3C53]"
     >
       {placeholder && <option value="">{placeholder}</option>}
@@ -545,6 +552,7 @@ export default function SupportsPublicitairesPage() {
   const [editingSupport, setEditingSupport] = useState<Support | null>(null);
   const [form, setForm] = useState(emptyForm());
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   // Modal image plein écran
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -623,6 +631,7 @@ export default function SupportsPublicitairesPage() {
   function openCreate() {
     setEditingSupport(null);
     setForm(emptyForm());
+    setValidationErrors({});
     setModalOpen(true);
   }
 
@@ -633,18 +642,66 @@ export default function SupportsPublicitairesPage() {
       imageSupportFile: null,
       imageSupportSecondaireFile: null,
     });
+    setValidationErrors({});
     setModalOpen(true);
+  }
+
+  function validateForm(): boolean {
+    const errors: Record<string, string> = {};
+    
+    // Champs obligatoires
+    if (!form.signataireNom?.trim()) {
+      errors.signataireNom = "Le nom du signataire est obligatoire";
+    }
+    if (!form.signatairePrenom?.trim()) {
+      errors.signatairePrenom = "Le prénom du signataire est obligatoire";
+    }
+    if (!form.signataireContact?.trim()) {
+      errors.signataireContact = "Le contact du signataire est obligatoire";
+    }
+    if (!form.typeSite?.trim()) {
+      errors.typeSite = "Le type de site est obligatoire";
+    }
+    if (!form.nombreSupport || form.nombreSupport <= 0) {
+      errors.nombreSupport = "Le nombre de supports est obligatoire";
+    }
+    if (form.surfaceODP === undefined || form.surfaceODP === null || form.surfaceODP < 0) {
+      errors.surfaceODP = "La surface ODP est obligatoire";
+    }
+    if (!form.responsableNom?.trim()) {
+      errors.responsableNom = "Le nom du responsable est obligatoire";
+    }
+    if (!form.responsablePrenom?.trim()) {
+      errors.responsablePrenom = "Le prénom du responsable est obligatoire";
+    }
+    if (!form.responsableContact?.trim()) {
+      errors.responsableContact = "Le contact du responsable est obligatoire";
+    }
+
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    
+    // Validation
+    if (!validateForm()) {
+      // Scroll vers le premier champ en erreur
+      const firstError = document.querySelector('[data-error="true"]');
+      if (firstError) {
+        firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
       const fd = new FormData();
 
-      // Champs texte
-      const textFields: (keyof typeof form)[] = [
+      // Champs texte obligatoires
+      const requiredTextFields = [
         "marque", "entreprise", "ville", "commune", "region",
         "district", "village", "quartier", "nomSite", "typeSupport",
         "canal", "etatSupport", "typeSite", "visibilite",
@@ -652,19 +709,27 @@ export default function SupportsPublicitairesPage() {
         "responsableNom", "responsablePrenom", "responsableContact",
         "signataireNom", "signatairePrenom", "signataireContact",
       ];
-      textFields.forEach((k) => {
-        const v = form[k];
-        if (v !== null && v !== undefined) fd.append(k as string, String(v));
+      requiredTextFields.forEach((k) => {
+        const v = form[k as keyof typeof form];
+        if (v !== null && v !== undefined && v !== "") {
+          fd.append(k, String(v));
+        }
       });
 
-      // Champs numériques
+      // Champs numériques obligatoires
+      fd.append("nombreSupport", String(form.nombreSupport || 1));
+      fd.append("nombreFace", String(form.nombreFace || 1));
+      fd.append("surfaceODP", String(form.surfaceODP || 0));
+
+      // Champs numériques optionnels
       const numFields: (keyof typeof form)[] = [
-        "surface", "nombreSupport", "nombreFace", "surfaceODP",
-        "duree", "tsp", "odpValue", "latitude", "longitude",
+        "surface", "duree", "tsp", "odpValue", "latitude", "longitude",
       ];
       numFields.forEach((k) => {
         const v = form[k];
-        if (v !== null && v !== undefined) fd.append(k as string, String(v));
+        if (v !== null && v !== undefined && v !== "") {
+          fd.append(k as string, String(v));
+        }
       });
 
       // Champs booléens
@@ -691,7 +756,28 @@ export default function SupportsPublicitairesPage() {
       const method = editingSupport ? "PATCH" : "POST";
 
       const res = await fetch(url, { method, headers, body: fd });
-      if (!res.ok) throw new Error("Erreur serveur");
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        console.error("Erreur serveur:", errorData);
+        
+        // Gérer les erreurs de validation du backend
+        if (errorData && typeof errorData === 'object') {
+          const backendErrors: Record<string, string> = {};
+          Object.entries(errorData).forEach(([key, value]) => {
+            if (Array.isArray(value)) {
+              backendErrors[key] = value.join(', ');
+            } else if (typeof value === 'string') {
+              backendErrors[key] = value;
+            }
+          });
+          if (Object.keys(backendErrors).length > 0) {
+            setValidationErrors(backendErrors);
+            throw new Error("Erreur de validation");
+          }
+        }
+        throw new Error("Erreur serveur");
+      }
 
       const saved: Support = await res.json();
 
@@ -704,8 +790,11 @@ export default function SupportsPublicitairesPage() {
         setTotal((t) => t + 1);
       }
       setModalOpen(false);
-    } catch {
-      alert("Erreur lors de la sauvegarde. Vérifiez les champs.");
+      setValidationErrors({});
+    } catch (error) {
+      if (error instanceof Error && error.message !== "Erreur de validation") {
+        alert("Erreur lors de la sauvegarde. Vérifiez tous les champs obligatoires.");
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -1172,7 +1261,7 @@ export default function SupportsPublicitairesPage() {
       {/* ===================== MODAL CRUD ===================== */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="flex max-h-[92vh] w-full max-w-3xl flex-col rounded-xl bg-white shadow-2xl">
+          <div className="flex max-h-[92vh] w-full max-w-4xl flex-col rounded-xl bg-white shadow-2xl">
             {/* En-tête modal */}
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
               <h2 className="text-[16px] font-bold text-slate-900">
@@ -1192,14 +1281,27 @@ export default function SupportsPublicitairesPage() {
               onSubmit={handleSubmit}
               className="flex-1 space-y-6 overflow-y-auto px-6 py-5"
             >
+              {/* Affichage des erreurs globales */}
+              {Object.keys(validationErrors).length > 0 && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+                  <p className="mb-2 text-sm font-semibold text-red-700">Veuillez corriger les erreurs suivantes :</p>
+                  <ul className="list-disc pl-5 text-sm text-red-600">
+                    {Object.entries(validationErrors).map(([key, message]) => (
+                      <li key={key}>{message}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {/* Identification */}
               <div>
                 <SectionTitle>Identification</SectionTitle>
                 <div className="grid grid-cols-3 gap-4">
-                  <FormField label="Marque *">
+                  <FormField label="Marque" required>
                     <TextInput
                       value={form.marque ?? ""}
                       onChange={(v) => setForm((f) => ({ ...f, marque: v }))}
+                      required
                     />
                   </FormField>
                   <FormField label="Entreprise">
@@ -1315,12 +1417,25 @@ export default function SupportsPublicitairesPage() {
                       }
                     />
                   </FormField>
+                  <FormField label="Nombre de supports *" required>
+                    <TextInput
+                      type="number"
+                      value={form.nombreSupport ?? 1}
+                      onChange={(v) =>
+                        setForm((f) => ({ ...f, nombreSupport: v ? parseFloat(v) : 1 }))
+                      }
+                      required
+                    />
+                    {validationErrors.nombreSupport && (
+                      <p className="mt-1 text-xs text-red-500">{validationErrors.nombreSupport}</p>
+                    )}
+                  </FormField>
                   <FormField label="Nombre de faces">
                     <TextInput
                       type="number"
-                      value={form.nombreFace ?? null}
+                      value={form.nombreFace ?? 1}
                       onChange={(v) =>
-                        setForm((f) => ({ ...f, nombreFace: v ? parseFloat(v) : null }))
+                        setForm((f) => ({ ...f, nombreFace: v ? parseFloat(v) : 1 }))
                       }
                     />
                   </FormField>
@@ -1331,12 +1446,37 @@ export default function SupportsPublicitairesPage() {
                       options={filtres?.etatsSupport ?? ["Bon", "Défraichi", "Détérioré"]}
                     />
                   </FormField>
+                  <FormField label="Type de site *" required>
+                    <SelectInput
+                      value={form.typeSite ?? "Permanent"}
+                      onChange={(v) => setForm((f) => ({ ...f, typeSite: v }))}
+                      options={["Permanent", "Temporaire", "Mobile"]}
+                      placeholder="— Choisir —"
+                      required
+                    />
+                    {validationErrors.typeSite && (
+                      <p className="mt-1 text-xs text-red-500">{validationErrors.typeSite}</p>
+                    )}
+                  </FormField>
                   <FormField label="Visibilité">
                     <SelectInput
                       value={form.visibilite ?? "Bonne"}
                       onChange={(v) => setForm((f) => ({ ...f, visibilite: v }))}
                       options={filtres?.visibilites ?? ["Excellente", "Bonne", "Moyenne", "Faible"]}
                     />
+                  </FormField>
+                  <FormField label="Surface ODP *" required>
+                    <TextInput
+                      type="number"
+                      value={form.surfaceODP ?? 0}
+                      onChange={(v) =>
+                        setForm((f) => ({ ...f, surfaceODP: v ? parseFloat(v) : 0 }))
+                      }
+                      required
+                    />
+                    {validationErrors.surfaceODP && (
+                      <p className="mt-1 text-xs text-red-500">{validationErrors.surfaceODP}</p>
+                    )}
                   </FormField>
                 </div>
               </div>
@@ -1362,28 +1502,86 @@ export default function SupportsPublicitairesPage() {
                 </div>
               </div>
 
-              {/* Responsable terrain */}
+              {/* Responsables */}
               <div>
-                <SectionTitle>Responsable terrain</SectionTitle>
-                <div className="grid grid-cols-3 gap-4">
-                  <FormField label="Nom">
-                    <TextInput
-                      value={form.responsableNom ?? ""}
-                      onChange={(v) => setForm((f) => ({ ...f, responsableNom: v }))}
-                    />
-                  </FormField>
-                  <FormField label="Prénom">
-                    <TextInput
-                      value={form.responsablePrenom ?? ""}
-                      onChange={(v) => setForm((f) => ({ ...f, responsablePrenom: v }))}
-                    />
-                  </FormField>
-                  <FormField label="Contact">
-                    <TextInput
-                      value={form.responsableContact ?? ""}
-                      onChange={(v) => setForm((f) => ({ ...f, responsableContact: v }))}
-                    />
-                  </FormField>
+                <SectionTitle>Responsables</SectionTitle>
+                <div className="grid grid-cols-2 gap-6">
+                  {/* Responsable terrain */}
+                  <div>
+                    <h4 className="mb-3 text-[13px] font-semibold text-slate-700">Responsable terrain</h4>
+                    <div className="grid grid-cols-1 gap-4">
+                      <FormField label="Nom *" required>
+                        <TextInput
+                          value={form.responsableNom ?? ""}
+                          onChange={(v) => setForm((f) => ({ ...f, responsableNom: v }))}
+                          required
+                        />
+                        {validationErrors.responsableNom && (
+                          <p className="mt-1 text-xs text-red-500">{validationErrors.responsableNom}</p>
+                        )}
+                      </FormField>
+                      <FormField label="Prénom *" required>
+                        <TextInput
+                          value={form.responsablePrenom ?? ""}
+                          onChange={(v) => setForm((f) => ({ ...f, responsablePrenom: v }))}
+                          required
+                        />
+                        {validationErrors.responsablePrenom && (
+                          <p className="mt-1 text-xs text-red-500">{validationErrors.responsablePrenom}</p>
+                        )}
+                      </FormField>
+                      <FormField label="Contact *" required>
+                        <TextInput
+                          value={form.responsableContact ?? ""}
+                          onChange={(v) => setForm((f) => ({ ...f, responsableContact: v }))}
+                          required
+                        />
+                        {validationErrors.responsableContact && (
+                          <p className="mt-1 text-xs text-red-500">{validationErrors.responsableContact}</p>
+                        )}
+                      </FormField>
+                    </div>
+                  </div>
+
+                  {/* Signataire */}
+                  <div>
+                    <h4 className="mb-3 text-[13px] font-semibold text-slate-700">Signataire</h4>
+                    <div className="grid grid-cols-1 gap-4">
+                      <FormField label="Nom *" required>
+                        <TextInput
+                          value={form.signataireNom ?? ""}
+                          onChange={(v) => setForm((f) => ({ ...f, signataireNom: v }))}
+                          required
+                          data-error={!!validationErrors.signataireNom}
+                        />
+                        {validationErrors.signataireNom && (
+                          <p className="mt-1 text-xs text-red-500">{validationErrors.signataireNom}</p>
+                        )}
+                      </FormField>
+                      <FormField label="Prénom *" required>
+                        <TextInput
+                          value={form.signatairePrenom ?? ""}
+                          onChange={(v) => setForm((f) => ({ ...f, signatairePrenom: v }))}
+                          required
+                          data-error={!!validationErrors.signatairePrenom}
+                        />
+                        {validationErrors.signatairePrenom && (
+                          <p className="mt-1 text-xs text-red-500">{validationErrors.signatairePrenom}</p>
+                        )}
+                      </FormField>
+                      <FormField label="Contact *" required>
+                        <TextInput
+                          value={form.signataireContact ?? ""}
+                          onChange={(v) => setForm((f) => ({ ...f, signataireContact: v }))}
+                          required
+                          data-error={!!validationErrors.signataireContact}
+                        />
+                        {validationErrors.signataireContact && (
+                          <p className="mt-1 text-xs text-red-500">{validationErrors.signataireContact}</p>
+                        )}
+                      </FormField>
+                    </div>
+                  </div>
                 </div>
               </div>
 
