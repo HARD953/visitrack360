@@ -43,6 +43,7 @@ import {
   BadgeCheck,
   Banknote,
   Filter,
+  Handshake
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiFetch, getAccessToken } from "@/lib/api/client";
@@ -101,6 +102,35 @@ interface Statistiques {
 interface PaginatedResponse<T> {
   count: number;
   results: T[];
+}
+
+// Types pour les listes déroulantes
+interface Commune {
+  id: number;
+  nom: string;
+  code: string;
+  region: number;
+}
+
+interface Region {
+  id: number;
+  nom: string;
+  code: string;
+  district: number;
+}
+
+interface District {
+  id: number;
+  nom: string;
+  code: string;
+}
+
+interface Agent {
+  id: number;
+  nom: string;
+  prenom: string;
+  email: string;
+  nomComplet: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +192,6 @@ function exportCSV(data: Record<string, unknown>[], filename: string) {
 }
 
 function generatePDF(ordres: OrdreDeRecettes[]) {
-  // Génération HTML → print → PDF natif navigateur
   const rows = ordres
     .map(
       (o) => `
@@ -232,7 +261,7 @@ function generatePDF(ordres: OrdreDeRecettes[]) {
 }
 
 // ---------------------------------------------------------------------------
-// Navigation (dupliquée volontairement)
+// Navigation
 // ---------------------------------------------------------------------------
 
 const NAV_SECTIONS = [
@@ -251,13 +280,12 @@ const NAV_SECTIONS = [
       { label: "Analyse fiscale", href: "/analyse-fiscale", icon: LineChartIcon },
       { label: "Ordres de recettes", href: "/ordres-de-recettes", icon: Receipt },
       { label: "Rapports & exports", href: "/rapports-exports", icon: FileBarChart },
+    //   { label: "Negociations fiscale", href: "/negociations", icon: Handshake },
     ],
   },
   {
     label: "Administration",
     items: [
-      { label: "Agents recenseurs", href: "/agents-recenseurs", icon: Users },
-      { label: "Paramètres", href: "/parametres", icon: Settings },
       { label: "Administration", href: "/administration", icon: ShieldCheck },
     ],
   },
@@ -308,19 +336,22 @@ function SelectInput({
   onChange,
   options,
   placeholder,
+  isLoading = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   options: { value: string; label: string }[];
   placeholder?: string;
+  isLoading?: boolean;
 }) {
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-800 outline-none focus:border-[#0B3C53]"
+      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-800 outline-none focus:border-[#0B3C53] disabled:opacity-60"
+      disabled={isLoading}
     >
-      {placeholder && <option value="">{placeholder}</option>}
+      {placeholder && <option value="">{isLoading ? "Chargement..." : placeholder}</option>}
       {options.map((o) => (
         <option key={o.value} value={o.value}>{o.label}</option>
       ))}
@@ -355,6 +386,7 @@ function emptyForm() {
     prochaineAction: "",
     commentaire: "",
     pieceJointeFile: null as File | null,
+    responsable: "",
   };
 }
 
@@ -370,6 +402,13 @@ export default function OrdresDeRecettesPage() {
   const [stats, setStats] = useState<Statistiques | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // État pour les listes déroulantes
+  const [communes, setCommunes] = useState<Commune[]>([]);
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [districts, setDistricts] = useState<District[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [isLoadingSelects, setIsLoadingSelects] = useState(true);
 
   // Filtres
   const [search, setSearch] = useState("");
@@ -397,6 +436,33 @@ export default function OrdresDeRecettesPage() {
   useEffect(() => {
     if (!user) router.replace("/login");
   }, [user, router]);
+
+  // Charger les données pour les listes déroulantes
+  useEffect(() => {
+    const loadSelectData = async () => {
+      if (!user) return;
+      setIsLoadingSelects(true);
+      try {
+        const [communesRes, regionsRes, districtsRes, agentsRes] = await Promise.all([
+          apiFetch<PaginatedResponse<Commune> | Commune[]>("/api/geo/communes/?is_active=true"),
+          apiFetch<PaginatedResponse<Region> | Region[]>("/api/geo/regions/?is_active=true"),
+          apiFetch<PaginatedResponse<District> | District[]>("/api/geo/districts/?is_active=true"),
+          apiFetch<PaginatedResponse<Agent> | Agent[]>("/api/users/?role=AGENT&is_active=true"),
+        ]);
+
+        setCommunes(Array.isArray(communesRes) ? communesRes : communesRes.results || []);
+        setRegions(Array.isArray(regionsRes) ? regionsRes : regionsRes.results || []);
+        setDistricts(Array.isArray(districtsRes) ? districtsRes : districtsRes.results || []);
+        setAgents(Array.isArray(agentsRes) ? agentsRes : agentsRes.results || []);
+      } catch (error) {
+        console.error("Erreur chargement listes déroulantes:", error);
+      } finally {
+        setIsLoadingSelects(false);
+      }
+    };
+
+    loadSelectData();
+  }, [user]);
 
   const queryString = useMemo(() => {
     const p = new URLSearchParams();
@@ -463,6 +529,7 @@ export default function OrdresDeRecettesPage() {
       prochaineAction: o.prochaineAction,
       commentaire: o.commentaire,
       pieceJointeFile: null,
+      responsable: o.responsable ? String(o.responsable) : "",
     });
     setModalOpen(true);
   }
@@ -471,40 +538,89 @@ export default function OrdresDeRecettesPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const fd = new FormData();
-      fd.append("type_collectivite", form.typeCollectivite);
-      fd.append("nom_collectivite", form.nomCollectivite);
-      fd.append("commune", form.commune);
-      fd.append("region", form.region);
-      fd.append("district", form.district);
-      fd.append("interlocuteur", form.interlocuteur);
-      fd.append("reference", form.reference);
-      if (form.dateEmission) fd.append("date_emission", form.dateEmission);
-      if (form.periodeDebut) fd.append("periode_debut", form.periodeDebut);
-      if (form.periodeFin) fd.append("periode_fin", form.periodeFin);
-      fd.append("montant_reclame", form.montantReclame || "0");
-      fd.append("penalites", form.penalites || "0");
-      fd.append("frais_annexes", form.fraisAnnexes || "0");
-      fd.append("nombre_supports_factures", form.nombreSupportsFactures || "0");
-      fd.append("type_support_facture", form.typeSupportFacture);
-      if (form.surfaceFacturee) fd.append("surface_facturee", form.surfaceFacturee);
-      fd.append("localite_facturee", form.localiteFacturee);
-      fd.append("statut", form.statut);
-      fd.append("prochaine_action", form.prochaineAction);
-      fd.append("commentaire", form.commentaire);
-      if (form.pieceJointeFile) fd.append("piece_jointe", form.pieceJointeFile);
+      // Nettoyer les données
+      const cleanMontantReclame = parseFloat(form.montantReclame) || 0;
+      const cleanPenalites = parseFloat(form.penalites) || 0;
+      const cleanFraisAnnexes = parseFloat(form.fraisAnnexes) || 0;
+      const cleanNombreSupports = parseInt(form.nombreSupportsFactures) || 0;
+      const cleanSurface = form.surfaceFacturee ? parseFloat(form.surfaceFacturee) : null;
 
+      // Créer l'objet avec les bons noms de champs (camelCase attendu par le serializer)
+      const data: Record<string, any> = {
+        typeCollectivite: form.typeCollectivite,
+        nomCollectivite: form.nomCollectivite,
+        commune: form.commune || "",
+        region: form.region || "",
+        district: form.district || "",
+        interlocuteur: form.interlocuteur || "",
+        reference: form.reference || "",
+        dateEmission: form.dateEmission || null,
+        periodeDebut: form.periodeDebut || null,
+        periodeFin: form.periodeFin || null,
+        montantReclame: cleanMontantReclame,
+        penalites: cleanPenalites,
+        fraisAnnexes: cleanFraisAnnexes,
+        nombreSupportsFactures: cleanNombreSupports,
+        typeSupportFacture: form.typeSupportFacture || "",
+        surfaceFacturee: cleanSurface,
+        localiteFacturee: form.localiteFacturee || "",
+        statut: form.statut,
+        prochaineAction: form.prochaineAction || "",
+        commentaire: form.commentaire || "",
+      };
+
+      // Ajouter le responsable si sélectionné
+      if (form.responsable) {
+        data.responsable = parseInt(form.responsable);
+      }
+
+      // Si une pièce jointe est présente, utiliser FormData
+      let body: BodyInit;
+      let headers: Record<string, string> = {};
+      
       const token = getAccessToken();
-      const headers: Record<string, string> = {};
       if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      if (form.pieceJointeFile) {
+        // Utiliser FormData pour le fichier
+        const fd = new FormData();
+        Object.entries(data).forEach(([key, value]) => {
+          if (value !== null && value !== undefined) {
+            fd.append(key, String(value));
+          }
+        });
+        fd.append("pieceJointe", form.pieceJointeFile);
+        body = fd;
+        // Ne pas définir Content-Type pour FormData (le navigateur le fait automatiquement)
+      } else {
+        // Utiliser JSON
+        headers["Content-Type"] = "application/json";
+        body = JSON.stringify(data);
+      }
 
       const url = editing
         ? `${BASE_URL}/api/ordres-recettes/${editing.id}/`
         : `${BASE_URL}/api/ordres-recettes/`;
       const method = editing ? "PATCH" : "POST";
 
-      const res = await fetch(url, { method, headers, body: fd });
-      if (!res.ok) throw new Error("Erreur serveur");
+      const res = await fetch(url, { method, headers, body });
+      
+      if (!res.ok) {
+        const errorData = await res.json();
+        console.error("Erreur détaillée:", errorData);
+        
+        // Afficher les erreurs spécifiques
+        if (errorData && typeof errorData === 'object') {
+          const errorMessages = Object.entries(errorData)
+            .map(([field, errors]) => `${field}: ${Array.isArray(errors) ? errors.join(', ') : errors}`)
+            .join('\n');
+          alert(`Erreur de validation:\n${errorMessages}`);
+        } else {
+          alert(`Erreur ${res.status}: ${res.statusText}`);
+        }
+        throw new Error("Erreur serveur");
+      }
+      
       const saved: OrdreDeRecettes = await res.json();
 
       if (editing) {
@@ -514,8 +630,11 @@ export default function OrdresDeRecettesPage() {
       }
       setModalOpen(false);
       load(); // Recharger les stats
-    } catch {
-      alert("Erreur lors de la sauvegarde.");
+    } catch (error) {
+      console.error("Erreur:", error);
+      if (!(error instanceof Error && error.message === "Erreur serveur")) {
+        alert("Erreur lors de la sauvegarde. Veuillez réessayer.");
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -572,10 +691,30 @@ export default function OrdresDeRecettesPage() {
     );
   }
 
-  const communes = useMemo(
+  const communesList = useMemo(
     () => [...new Set(ordres.map((o) => o.commune).filter(Boolean))],
     [ordres]
   );
+
+  // Options pour les select
+  const communeOptions = useMemo(() => {
+    return communes.map((c) => ({ value: c.nom, label: c.nom }));
+  }, [communes]);
+
+  const regionOptions = useMemo(() => {
+    return regions.map((r) => ({ value: r.nom, label: r.nom }));
+  }, [regions]);
+
+  const districtOptions = useMemo(() => {
+    return districts.map((d) => ({ value: d.nom, label: d.nom }));
+  }, [districts]);
+
+  const agentOptions = useMemo(() => {
+    return agents.map((a) => ({ 
+      value: String(a.id), 
+      label: a.nomComplet || `${a.prenom} ${a.nom}` 
+    }));
+  }, [agents]);
 
   if (!user) return null;
 
@@ -804,7 +943,7 @@ export default function OrdresDeRecettesPage() {
               className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[13px] text-slate-700 outline-none focus:border-[#0B3C53]"
             >
               <option value="">Toutes communes</option>
-              {communes.map((c) => <option key={c} value={c}>{c}</option>)}
+              {communesList.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
             <button
               onClick={() => { setSearch(""); setFilterStatut(""); setFilterType(""); setFilterCommune(""); }}
@@ -978,13 +1117,31 @@ export default function OrdresDeRecettesPage() {
                     <TextInput value={form.nomCollectivite} onChange={(v) => setForm((f) => ({ ...f, nomCollectivite: v }))} required />
                   </FormField>
                   <FormField label="Commune">
-                    <TextInput value={form.commune} onChange={(v) => setForm((f) => ({ ...f, commune: v }))} />
+                    <SelectInput
+                      value={form.commune}
+                      onChange={(v) => setForm((f) => ({ ...f, commune: v }))}
+                      options={communeOptions}
+                      placeholder="Sélectionner une commune"
+                      isLoading={isLoadingSelects}
+                    />
                   </FormField>
                   <FormField label="Région">
-                    <TextInput value={form.region} onChange={(v) => setForm((f) => ({ ...f, region: v }))} />
+                    <SelectInput
+                      value={form.region}
+                      onChange={(v) => setForm((f) => ({ ...f, region: v }))}
+                      options={regionOptions}
+                      placeholder="Sélectionner une région"
+                      isLoading={isLoadingSelects}
+                    />
                   </FormField>
                   <FormField label="District">
-                    <TextInput value={form.district} onChange={(v) => setForm((f) => ({ ...f, district: v }))} />
+                    <SelectInput
+                      value={form.district}
+                      onChange={(v) => setForm((f) => ({ ...f, district: v }))}
+                      options={districtOptions}
+                      placeholder="Sélectionner un district"
+                      isLoading={isLoadingSelects}
+                    />
                   </FormField>
                   <FormField label="Interlocuteur">
                     <TextInput value={form.interlocuteur} onChange={(v) => setForm((f) => ({ ...f, interlocuteur: v }))} />
@@ -1014,6 +1171,15 @@ export default function OrdresDeRecettesPage() {
                   </FormField>
                   <FormField label="Période fin">
                     <TextInput type="date" value={form.periodeFin} onChange={(v) => setForm((f) => ({ ...f, periodeFin: v }))} />
+                  </FormField>
+                  <FormField label="Responsable">
+                    <SelectInput
+                      value={form.responsable}
+                      onChange={(v) => setForm((f) => ({ ...f, responsable: v }))}
+                      options={agentOptions}
+                      placeholder="Assigner un responsable"
+                      isLoading={isLoadingSelects}
+                    />
                   </FormField>
                   <FormField label="Pièce jointe (PDF/Excel/image)">
                     <div className="flex items-center gap-2">

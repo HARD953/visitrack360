@@ -1,11 +1,11 @@
 "use client";
 
-import type { ElementType, ReactNode } from "react";
 import {
   useState,
   useEffect,
   useCallback,
   useMemo,
+  type ReactNode,
   type FormEvent,
 } from "react";
 import Link from "next/link";
@@ -22,35 +22,28 @@ import {
   ShieldCheck,
   Bell,
   ChevronDown,
-  Calendar,
-  SlidersHorizontal,
-  Trophy,
-  MoreVertical,
-  Info,
-  CalendarClock,
-  Mail,
-  Phone,
-  ImageOff,
-  Copy,
-  CloudRain,
-  Ruler,
-  Folder,
-  Coins,
-  Calculator,
-  HandCoins,
-  PiggyBank,
-  Percent,
   LogOut,
-  TrendingUp,
-  TrendingDown,
   Loader2,
   AlertCircle,
-  Handshake,
   Download,
   Plus,
   Pencil,
   Trash2,
   X,
+  Search,
+  RefreshCw,
+  CalendarClock,
+  Mail,
+  Phone,
+  CheckCircle2,
+  TrendingDown,
+  TrendingUp,
+  Filter,
+  ImageOff,
+  Copy,
+  CloudRain,
+  Ruler,
+  Handshake
 } from "lucide-react";
 import {
   BarChart,
@@ -64,15 +57,9 @@ import {
 } from "recharts";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiFetch } from "@/lib/api/client";
-import { fetchDashboardNegociations } from "@/lib/api/dashboard";
-import type {
-  NegotiationsDashboardData,
-  ActionType,
-  ReadyArgument,
-} from "@/types/dashboard";
 
 // ---------------------------------------------------------------------------
-// Types CRUD
+// Types
 // ---------------------------------------------------------------------------
 
 interface Negociation {
@@ -102,22 +89,14 @@ interface PaginatedResponse<T> {
   results: T[];
 }
 
+type ActionType = "reunion" | "argumentaire" | "relance";
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat("fr-FR").format(Math.round(value));
-}
-
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function sevenDaysAgoISO(): string {
-  const d = new Date();
-  d.setDate(d.getDate() - 7);
-  return d.toISOString().slice(0, 10);
+function formatNumber(v: number): string {
+  return new Intl.NumberFormat("fr-FR").format(Math.round(v));
 }
 
 function exportCSV(data: Record<string, unknown>[], filename: string) {
@@ -136,69 +115,56 @@ function exportCSV(data: Record<string, unknown>[], filename: string) {
   URL.revokeObjectURL(url);
 }
 
-function actionIcon(type: ActionType | "reunion" | "argumentaire" | "relance") {
+function actionIcon(type: ActionType) {
   switch (type) {
-    case "reunion":      return <CalendarClock className="h-4 w-4" />;
+    case "reunion": return <CalendarClock className="h-4 w-4" />;
     case "argumentaire": return <Mail className="h-4 w-4" />;
-    case "relance":      return <Phone className="h-4 w-4" />;
+    case "relance": return <Phone className="h-4 w-4" />;
   }
 }
 
-function actionIconClasses(type: ActionType | "reunion" | "argumentaire" | "relance"): string {
+function actionIconClass(type: ActionType): string {
   switch (type) {
-    case "reunion":      return "bg-cyan-50 text-cyan-600";
+    case "reunion": return "bg-cyan-50 text-cyan-600";
     case "argumentaire": return "bg-blue-50 text-blue-600";
-    case "relance":      return "bg-violet-50 text-violet-600";
+    case "relance": return "bg-violet-50 text-violet-600";
   }
 }
 
-function actionBadgeClass(type: "reunion" | "argumentaire" | "relance"): string {
+function actionBadgeClass(type: ActionType): string {
   switch (type) {
-    case "reunion":      return "bg-cyan-100 text-cyan-700";
+    case "reunion": return "bg-cyan-100 text-cyan-700";
     case "argumentaire": return "bg-blue-100 text-blue-700";
-    case "relance":      return "bg-violet-100 text-violet-700";
+    case "relance": return "bg-violet-100 text-violet-700";
   }
 }
 
-function tagClasses(color: "blue" | "orange"): string {
-  return color === "blue" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700";
-}
-
-function readyArgumentIcon(key: ReadyArgument["iconKey"] | ArgumentairePret["iconKey"]) {
+function argumentaireIcon(key: ArgumentairePret["iconKey"]) {
   switch (key) {
-    case "absent":  return <ImageOff className="h-4 w-4" />;
+    case "absent": return <ImageOff className="h-4 w-4" />;
     case "doublon": return <Copy className="h-4 w-4" />;
     case "periode": return <CloudRain className="h-4 w-4" />;
     case "surface": return <Ruler className="h-4 w-4" />;
   }
 }
 
-function readyArgumentIconClasses(key: ReadyArgument["iconKey"] | ArgumentairePret["iconKey"]): string {
+function argumentaireIconClass(key: ArgumentairePret["iconKey"]): string {
   switch (key) {
-    case "absent":  return "bg-red-50 text-red-500";
+    case "absent": return "bg-red-50 text-red-500";
     case "doublon": return "bg-amber-50 text-amber-500";
     case "periode": return "bg-pink-50 text-pink-500";
     case "surface": return "bg-violet-50 text-violet-500";
   }
 }
 
-const KPI_STYLES: Record<string, { icon: ElementType; badge: string }> = {
-  "dossiers-ouverts":  { icon: Folder,     badge: "bg-violet-500" },
-  "montant-initial":   { icon: Coins,      badge: "bg-cyan-500" },
-  "montant-recalcule": { icon: Calculator, badge: "bg-blue-500" },
-  "montant-negocie":   { icon: HandCoins,  badge: "bg-orange-500" },
-  "economie-obtenue":  { icon: PiggyBank,  badge: "bg-emerald-500" },
-  "taux-reduction":    { icon: Percent,    badge: "bg-pink-500" },
-};
-
 const TYPES_ACTION = [
-  { value: "reunion",      label: "Réunion" },
+  { value: "reunion", label: "Réunion" },
   { value: "argumentaire", label: "Envoi d'argumentaire" },
-  { value: "relance",      label: "Relance" },
+  { value: "relance", label: "Relance" },
 ];
 
 const MOTIFS_ARGUMENTAIRE = [
-  { value: "absent",  label: "Supports absents" },
+  { value: "absent", label: "Supports absents" },
   { value: "doublon", label: "Doublons" },
   { value: "periode", label: "Mauvaise période" },
   { value: "surface", label: "Mauvaise surface" },
@@ -212,35 +178,35 @@ const NAV_SECTIONS = [
   {
     label: "Principal",
     items: [
-      { label: "Vue Direction",   href: "/dashboard-executif", icon: ShieldCheck },
-      { label: "Tableau de bord", href: "/tableau-de-bord",    icon: LayoutDashboard },
+      { label: "Vue Direction", href: "/dashboard-executif", icon: ShieldCheck },
+      { label: "Tableau de bord", href: "/tableau-de-bord", icon: LayoutDashboard },
     ],
   },
   {
     label: "Opérations",
     items: [
       { label: "Supports publicitaires", href: "/supports-publicitaires", icon: ImageIcon },
-      { label: "Carte des supports",     href: "/carte-des-supports",     icon: Map },
-      { label: "Analyse fiscale",        href: "/analyse-fiscale",        icon: LineChartIcon },
-      { label: "Ordres de recettes",     href: "/ordres-de-recettes",     icon: Receipt },
-      { label: "Rapports & exports",     href: "/rapports-exports",       icon: FileBarChart },
-      // { label: "Negociations fiscale",   href: "/negociations",           icon: Handshake },
+      { label: "Carte des supports", href: "/carte-des-supports", icon: Map },
+      { label: "Analyse fiscale", href: "/analyse-fiscale", icon: LineChartIcon },
+      { label: "Ordres de recettes", href: "/ordres-de-recettes", icon: Receipt },
+      { label: "Rapports & exports", href: "/rapports-exports", icon: FileBarChart },
+    //   { label: "Negociations fiscale", href: "/negociations", icon: Handshake },
     ],
   },
   {
     label: "Administration",
     items: [
-      // { label: "Agents recenseurs", href: "/agents-recenseurs", icon: Users },
-      // { label: "Paramètres",        href: "/parametres",        icon: Settings },
-      { label: "Administration",    href: "/administration",    icon: ShieldCheck },
+      { label: "Agents recenseurs", href: "/agents-recenseurs", icon: Users },
+      { label: "Paramètres", href: "/parametres", icon: Settings },
+      { label: "Administration", href: "/administration", icon: ShieldCheck },
     ],
   },
 ];
 
-const ACTIVE_HREF = "/tableau-de-bord";
+const ACTIVE_HREF = "/negociations";
 
 // ---------------------------------------------------------------------------
-// Sous-composants formulaire
+// Sous-composants UI
 // ---------------------------------------------------------------------------
 
 function FormField({ label, children }: { label: string; children: ReactNode }) {
@@ -255,11 +221,8 @@ function FormField({ label, children }: { label: string; children: ReactNode }) 
 function TextInput({
   value, onChange, type = "text", placeholder = "", required = false,
 }: {
-  value: string | number | null;
-  onChange: (v: string) => void;
-  type?: string;
-  placeholder?: string;
-  required?: boolean;
+  value: string | number | null; onChange: (v: string) => void;
+  type?: string; placeholder?: string; required?: boolean;
 }) {
   return (
     <input
@@ -276,10 +239,8 @@ function TextInput({
 function SelectInput({
   value, onChange, options, placeholder,
 }: {
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-  placeholder?: string;
+  value: string; onChange: (v: string) => void;
+  options: { value: string; label: string }[]; placeholder?: string;
 }) {
   return (
     <select
@@ -295,6 +256,10 @@ function SelectInput({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Formulaire vide
+// ---------------------------------------------------------------------------
+
 function emptyForm() {
   return {
     commune: "",
@@ -308,51 +273,47 @@ function emptyForm() {
 }
 
 // ---------------------------------------------------------------------------
-// Page
+// Page principale
 // ---------------------------------------------------------------------------
 
-export default function TableauDeBordPage() {
+export default function NegociationsPage() {
   const { user, logout } = useAuth();
   const router = useRouter();
 
-  // ---- état dashboard ----
-  const [data, setData] = useState<NegotiationsDashboardData | null>(null);
-  const [isDashLoading, setIsDashLoading] = useState(true);
-  const [dashError, setDashError] = useState<string | null>(null);
-  const [periodFrom, setPeriodFrom] = useState(sevenDaysAgoISO());
-  const [periodTo, setPeriodTo] = useState(todayISO());
-
-  // ---- état CRUD négociations ----
   const [negociations, setNegociations] = useState<Negociation[]>([]);
   const [argumentaires, setArgumentaires] = useState<ArgumentairePret[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Modals
+  // Filtres
+  const [search, setSearch] = useState("");
+  const [filterAction, setFilterAction] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Modal CRUD
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Negociation | null>(null);
   const [form, setForm] = useState(emptyForm());
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Modal argumentaire
   const [argModal, setArgModal] = useState<Negociation | null>(null);
   const [argForm, setArgForm] = useState({ motif: "absent" });
+
+  // Modal suppression
   const [deleteTarget, setDeleteTarget] = useState<Negociation | null>(null);
+
+  // Vue active
+  const [view, setView] = useState<"tableau" | "cards">("tableau");
 
   useEffect(() => {
     if (!user) router.replace("/login");
   }, [user, router]);
 
-  // ---- Chargement dashboard ----
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!user) return;
-    setIsDashLoading(true);
-    setDashError(null);
-    fetchDashboardNegociations(periodFrom, periodTo)
-      .then(setData)
-      .catch(() => setDashError("Impossible de charger le tableau de bord. Vérifiez votre connexion."))
-      .finally(() => setIsDashLoading(false));
-  }, [user, periodFrom, periodTo]);
-
-  // ---- Chargement négociations (pour CRUD + graphe) ----
-  const loadNegociations = useCallback(async () => {
-    if (!user) return;
+    setIsLoading(true);
+    setError(null);
     try {
       const [negData, argData] = await Promise.all([
         apiFetch<PaginatedResponse<Negociation> | Negociation[]>("/api/negociations/"),
@@ -361,13 +322,26 @@ export default function TableauDeBordPage() {
       setNegociations(Array.isArray(negData) ? negData : negData.results);
       setArgumentaires(Array.isArray(argData) ? argData : argData.results);
     } catch {
-      // silencieux — le dashboard a son propre état d'erreur
+      setError("Impossible de charger les négociations.");
+    } finally {
+      setIsLoading(false);
     }
   }, [user]);
 
-  useEffect(() => { loadNegociations(); }, [loadNegociations]);
+  useEffect(() => { load(); }, [load]);
 
-  // ---- Données graphique économies par commune ----
+  // KPIs calculés
+  const kpis = useMemo(() => {
+    const total = negociations.length;
+    const avecAction = negociations.filter((n) => n.nextAction).length;
+    const totalInitial = negociations.reduce((s, n) => s + n.montantInitial, 0);
+    const totalEconomies = negociations.reduce((s, n) => s + (n.economie ?? 0), 0);
+    const tauxReduction = totalInitial > 0
+      ? Math.round((totalEconomies / totalInitial) * 100) : 0;
+    return { total, avecAction, totalInitial, totalEconomies, tauxReduction };
+  }, [negociations]);
+
+  // Données graphique économies par commune
   const chartData = useMemo(() =>
     negociations
       .filter((n) => n.economie && n.economie > 0)
@@ -381,20 +355,22 @@ export default function TableauDeBordPage() {
     [negociations]
   );
 
-  // ---- Export CSV ----
-  function handleExportCSV() {
-    exportCSV(negociations.map((n) => ({
-      Commune: n.commune,
-      Entreprise: n.entreprise,
-      "Montant initial (FCFA)": n.montantInitial,
-      "Montant recalculé (FCFA)": n.montantRecalcule,
-      "Montant négocié (FCFA)": n.montantNegocie ?? "",
-      "Économie (FCFA)": n.economie ?? "",
-      "Taux réduction (%)": n.montantInitial > 0 && n.montantNegocie
-        ? Math.round((1 - n.montantNegocie / n.montantInitial) * 100) : "",
-      "Prochaine action": n.nextAction?.label ?? "",
-    })), "negociations");
-  }
+  // Argumentaires groupés par motif
+  const argGrouped = useMemo(() => {
+    const map: Record<string, number> = {};
+    argumentaires.forEach((a) => { map[a.iconKey] = (map[a.iconKey] ?? 0) + 1; });
+    return MOTIFS_ARGUMENTAIRE.map((m) => ({ ...m, count: map[m.value] ?? 0 }));
+  }, [argumentaires]);
+
+  // Filtrage
+  const filtered = useMemo(() => negociations.filter((n) => {
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      if (!n.commune.toLowerCase().includes(q) && !n.entreprise.toLowerCase().includes(q)) return false;
+    }
+    if (filterAction && n.nextAction?.type !== filterAction) return false;
+    return true;
+  }), [negociations, search, filterAction]);
 
   // ---------------------------------------------------------------------------
   // CRUD
@@ -433,6 +409,7 @@ export default function TableauDeBordPage() {
         type_prochaine_action: form.typeProchaineAction || null,
         date_prochaine_action: form.dateProchaineAction || null,
       };
+
       if (editing) {
         const updated = await apiFetch<Negociation>(`/api/negociations/${editing.id}/`, {
           method: "PATCH", body: JSON.stringify(payload),
@@ -487,9 +464,19 @@ export default function TableauDeBordPage() {
     }
   }
 
-  const maxMonthlySaving = data
-    ? Math.max(...data.monthlySavings.map((m) => m.amount), 1)
-    : 1;
+  function handleExportCSV() {
+    exportCSV(filtered.map((n) => ({
+      Commune: n.commune,
+      Entreprise: n.entreprise,
+      "Montant initial (FCFA)": n.montantInitial,
+      "Montant recalculé (FCFA)": n.montantRecalcule,
+      "Montant négocié (FCFA)": n.montantNegocie ?? "",
+      "Économie (FCFA)": n.economie ?? "",
+      "Taux réduction (%)": n.montantInitial > 0 && n.montantNegocie
+        ? Math.round((1 - n.montantNegocie / n.montantInitial) * 100) : "",
+      "Prochaine action": n.nextAction?.label ?? "",
+    })), "negociations");
+  }
 
   if (!user) return null;
 
@@ -559,11 +546,11 @@ export default function TableauDeBordPage() {
         {/* HEADER */}
         <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
           <div>
-            <h2 className="text-[15px] font-bold text-slate-900">Dashboard Négociations &amp; Économies</h2>
-            <p className="text-[12px] text-slate-400">Tableau de bord</p>
+            <h2 className="text-[15px] font-bold text-slate-900">Négociations fiscales</h2>
+            <p className="text-[12px] text-slate-400">Suivi · Économies · Argumentaires</p>
           </div>
           <div className="flex items-center gap-4">
-            <button className="relative rounded-full p-2 text-slate-500 hover:bg-slate-100" aria-label="Notifications">
+            <button className="relative rounded-full p-2 text-slate-500 hover:bg-slate-100">
               <Bell className="h-5 w-5" />
               <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-red-500" />
             </button>
@@ -581,19 +568,15 @@ export default function TableauDeBordPage() {
         </header>
 
         <main className="flex-1 px-6 py-6">
-          {/* Titre + période + actions */}
+          {/* Titre + actions */}
           <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="border-l-4 border-[#0B3C53] pl-3">
-              <h1 className="text-2xl font-bold text-slate-900">Dashboard Négociations &amp; Économies</h1>
-              <p className="mt-1 text-[13px] text-slate-500">Suivi des dossiers fiscaux et économies obtenues</p>
+              <h1 className="text-2xl font-bold text-slate-900">Négociations fiscales</h1>
+              <p className="mt-1 text-[13px] text-slate-500">
+                Pilotage des dossiers de négociation et des économies réalisées.
+              </p>
             </div>
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-[13px] text-slate-600 shadow-sm">
-                <Calendar className="h-3.5 w-3.5 text-slate-400" />
-                <input type="date" value={periodFrom} onChange={(e) => setPeriodFrom(e.target.value)} className="w-28 outline-none text-[13px]" />
-                <span className="text-slate-400">→</span>
-                <input type="date" value={periodTo} onChange={(e) => setPeriodTo(e.target.value)} className="w-28 outline-none text-[13px]" />
-              </div>
               <button onClick={handleExportCSV} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-[13px] font-medium text-slate-600 shadow-sm hover:bg-slate-50">
                 <Download className="h-4 w-4" />
                 Export CSV
@@ -605,277 +588,256 @@ export default function TableauDeBordPage() {
             </div>
           </div>
 
-          {/* État chargement dashboard */}
-          {isDashLoading && (
-            <div className="flex h-64 items-center justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-[#0B3C53]" />
+          {/* KPIs */}
+          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
+            {[
+              { label: "Dossiers totaux", value: kpis.total.toString(), icon: <TrendingUp className="h-4 w-4 text-white" />, badge: "bg-violet-500" },
+              { label: "Avec action prévue", value: kpis.avecAction.toString(), icon: <CalendarClock className="h-4 w-4 text-white" />, badge: "bg-cyan-500" },
+              { label: "Montant initial", value: `${formatNumber(kpis.totalInitial)} FCFA`, icon: <TrendingUp className="h-4 w-4 text-white" />, badge: "bg-blue-500" },
+              { label: "Économies obtenues", value: `${formatNumber(kpis.totalEconomies)} FCFA`, icon: <TrendingDown className="h-4 w-4 text-white" />, badge: "bg-emerald-500" },
+              { label: "Taux réduction moy.", value: `${kpis.tauxReduction}%`, icon: <CheckCircle2 className="h-4 w-4 text-white" />, badge: "bg-orange-500" },
+            ].map((kpi) => (
+              <div key={kpi.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="mb-2 flex items-start justify-between">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{kpi.label}</p>
+                  <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${kpi.badge}`}>
+                    {kpi.icon}
+                  </div>
+                </div>
+                <p className="text-xl font-bold tabular-nums text-slate-900">{kpi.value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Graphique économies */}
+          {chartData.length > 0 && (
+            <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-[14px] font-bold text-slate-800">
+                Économies réalisées par commune (M FCFA)
+              </h2>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="commune" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}M`} />
+                  <Tooltip formatter={(v) => [`${v}M FCFA`]} />
+                  <Legend />
+                  <Bar dataKey="initial" name="Montant initial" fill="#8B5CF6" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="negocie" name="Négocié" fill="#3B82F6" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="economie" name="Économie" fill="#10B981" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           )}
 
-          {dashError && !isDashLoading && (
-            <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <AlertCircle className="h-10 w-10 text-red-400" />
-              <p className="text-[14px] text-slate-600">{dashError}</p>
-              <button
-                onClick={() => {
-                  setIsDashLoading(true);
-                  setDashError(null);
-                  fetchDashboardNegociations(periodFrom, periodTo)
-                    .then(setData)
-                    .catch(() => setDashError("Impossible de charger le tableau de bord."))
-                    .finally(() => setIsDashLoading(false));
-                }}
-                className="rounded-lg bg-[#0B3C53] px-4 py-2 text-[13px] font-semibold text-white"
-              >
-                Réessayer
-              </button>
-            </div>
-          )}
+          {/* Grille : tableau + argumentaires */}
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-4">
+            {/* Tableau des négociations */}
+            <div className="xl:col-span-3">
+              {/* Filtres */}
+              <div className="mb-4 space-y-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="relative flex-1">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Rechercher une commune ou entreprise..."
+                      className="w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-[13px] text-slate-700 outline-none focus:border-[#0B3C53]"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowFilters((v) => !v)}
+                      className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-[13px] font-medium transition ${
+                        showFilters || filterAction
+                          ? "border-[#0B3C53] bg-[#0B3C53]/5 text-[#0B3C53]"
+                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <Filter className="h-4 w-4" />
+                      Filtres
+                      {filterAction && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#0B3C53] text-[10px] font-bold text-white">1</span>}
+                    </button>
+                    <button onClick={load} className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[13px] font-medium text-slate-500 hover:bg-slate-50">
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
 
-          {data && !isDashLoading && (
-            <>
-              {/* KPI Cards */}
-              <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-                {data.kpis.map((kpi) => {
-                  const style = KPI_STYLES[kpi.id];
-                  const Icon = style?.icon ?? Folder;
-                  return (
-                    <div key={kpi.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                      <div className="mb-3 flex items-start justify-between">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{kpi.label}</p>
-                        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${style?.badge ?? "bg-slate-400"}`}>
-                          <Icon className="h-4 w-4 text-white" strokeWidth={2} />
-                        </div>
-                      </div>
-                      <p className="text-2xl font-bold tabular-nums text-slate-900">
-                        {formatNumber(kpi.value)}
-                        {kpi.unit && <span className="ml-1 text-sm font-medium text-slate-400">{kpi.unit}</span>}
-                      </p>
-                      <p className={`mt-2 flex items-center gap-1 text-[12px] font-semibold ${kpi.trend.direction === "up" ? "text-emerald-600" : "text-red-500"}`}>
-                        {kpi.trend.direction === "up"
-                          ? <TrendingUp className="h-3.5 w-3.5" />
-                          : <TrendingDown className="h-3.5 w-3.5" />}
-                        {kpi.trend.value}
-                        {kpi.trend.value < 100 ? "%" : ""}
-                        <span className="font-normal text-slate-400">{kpi.trend.comparedTo}</span>
-                      </p>
+                {showFilters && (
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">Filtres avancés</p>
+                      {filterAction && (
+                        <button onClick={() => setFilterAction("")} className="text-[12px] font-medium text-[#0B3C53] hover:underline">
+                          Réinitialiser
+                        </button>
+                      )}
                     </div>
-                  );
-                })}
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-[11px] font-medium text-slate-400">Type de prochaine action</label>
+                        <select
+                          value={filterAction}
+                          onChange={(e) => setFilterAction(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-700 outline-none focus:border-[#0B3C53]"
+                        >
+                          <option value="">Toutes</option>
+                          {TYPES_ACTION.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Grille principale */}
-              <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
-                {/* Tableau dossiers */}
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-                  <div className="mb-4 flex items-center gap-2">
-                    <h2 className="text-[14px] font-bold text-slate-800">Dossiers de négociation</h2>
-                    <Info className="h-3.5 w-3.5 text-slate-400" />
+              {isLoading && (
+                <div className="flex h-48 items-center justify-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-[#0B3C53]" />
+                </div>
+              )}
+
+              {error && (
+                <div className="flex items-center gap-3 rounded-lg border border-red-100 bg-red-50 px-4 py-3">
+                  <AlertCircle className="h-4 w-4 text-red-500" />
+                  <p className="text-[13px] text-red-700">{error}</p>
+                  <button onClick={load} className="ml-auto text-[13px] font-semibold text-red-700 underline">Réessayer</button>
+                </div>
+              )}
+
+              {!isLoading && !error && (
+                <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+                  <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+                    <p className="text-[13px] font-medium text-slate-500">
+                      {filtered.length} dossier{filtered.length > 1 ? "s" : ""}
+                    </p>
                   </div>
-                  {data.negotiationFiles.length === 0 ? (
-                    <p className="py-8 text-center text-[13px] text-slate-400">Aucun dossier sur cette période.</p>
-                  ) : (
-                    <div className="-mx-5 overflow-x-auto">
-                      <table className="w-full min-w-[640px] border-collapse text-sm">
-                        <thead>
-                          <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                            <th className="px-5 py-2.5">Commune</th>
-                            <th className="px-3 py-2.5">Montant initial</th>
-                            <th className="px-3 py-2.5">Recalculé</th>
-                            <th className="px-3 py-2.5">Négocié</th>
-                            <th className="px-3 py-2.5">Économie</th>
-                            <th className="px-3 py-2.5">Prochaine action</th>
-                            <th className="px-3 py-2.5" />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.negotiationFiles.map((file) => (
-                            <tr key={file.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                              <td className="px-5 py-3 font-semibold text-slate-800">{file.commune}</td>
-                              <td className="whitespace-nowrap px-3 py-3 text-slate-600">{formatNumber(Number(file.montantInitial))} FCFA</td>
-                              <td className="whitespace-nowrap px-3 py-3 text-slate-600">{formatNumber(Number(file.montantRecalcule))} FCFA</td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[700px] border-collapse text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          <th className="px-5 py-2.5">Commune</th>
+                          <th className="px-3 py-2.5">Montant initial</th>
+                          <th className="px-3 py-2.5">Recalculé</th>
+                          <th className="px-3 py-2.5">Négocié</th>
+                          <th className="px-3 py-2.5">Économie</th>
+                          <th className="px-3 py-2.5">Taux</th>
+                          <th className="px-3 py-2.5">Prochaine action</th>
+                          <th className="px-3 py-2.5 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filtered.map((n) => {
+                          const taux = n.montantInitial > 0 && n.montantNegocie
+                            ? Math.round((1 - n.montantNegocie / n.montantInitial) * 100) : null;
+                          return (
+                            <tr key={n.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                              <td className="px-5 py-3">
+                                <p className="font-semibold text-slate-800">{n.commune}</p>
+                                {n.entreprise && <p className="text-[11px] text-slate-400">{n.entreprise}</p>}
+                              </td>
                               <td className="whitespace-nowrap px-3 py-3 text-slate-600">
-                                {file.montantNegocie ? `${formatNumber(Number(file.montantNegocie))} FCFA` : "—"}
+                                {formatNumber(n.montantInitial)} FCFA
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-3 text-slate-600">
+                                {formatNumber(n.montantRecalcule)} FCFA
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-3 font-medium text-blue-600">
+                                {n.montantNegocie ? `${formatNumber(n.montantNegocie)} FCFA` : <span className="text-slate-300">—</span>}
                               </td>
                               <td className="whitespace-nowrap px-3 py-3 font-bold text-emerald-600">
-                                {file.economie ? `${formatNumber(Number(file.economie))} FCFA` : "—"}
+                                {n.economie ? `${formatNumber(n.economie)} FCFA` : <span className="text-slate-300">—</span>}
                               </td>
                               <td className="whitespace-nowrap px-3 py-3">
-                                {file.nextAction ? (
+                                {taux !== null ? (
+                                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                                    -{taux}%
+                                  </span>
+                                ) : <span className="text-slate-300">—</span>}
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-3">
+                                {n.nextAction ? (
                                   <div className="flex items-center gap-2">
-                                    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${actionIconClasses(file.nextAction.type as ActionType)}`}>
-                                      {actionIcon(file.nextAction.type as ActionType)}
+                                    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${actionIconClass(n.nextAction.type)}`}>
+                                      {actionIcon(n.nextAction.type)}
                                     </span>
-                                    <span className="text-slate-600">{file.nextAction.label}</span>
+                                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${actionBadgeClass(n.nextAction.type)}`}>
+                                      {n.nextAction.label}
+                                    </span>
                                   </div>
                                 ) : <span className="text-slate-300">—</span>}
                               </td>
-                              <td className="px-3 py-3 text-right">
+                              <td className="px-3 py-3">
                                 <div className="flex items-center justify-end gap-1">
                                   <button
-                                    onClick={() => {
-                                      const neg = negociations.find((n) => String(n.id) === String(file.id));
-                                      if (neg) setArgModal(neg);
-                                    }}
+                                    onClick={() => setArgModal(n)}
                                     className="rounded-md p-1.5 text-slate-400 hover:bg-violet-50 hover:text-violet-600"
                                     title="Argumentaires"
                                   >
                                     <ImageOff className="h-4 w-4" />
                                   </button>
-                                  <button
-                                    onClick={() => {
-                                      const neg = negociations.find((n) => String(n.id) === String(file.id));
-                                      if (neg) openEdit(neg);
-                                    }}
-                                    className="rounded-md p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
-                                    title="Modifier"
-                                  >
+                                  <button onClick={() => openEdit(n)} className="rounded-md p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600" title="Modifier">
                                     <Pencil className="h-4 w-4" />
                                   </button>
-                                  <button
-                                    onClick={() => {
-                                      const neg = negociations.find((n) => String(n.id) === String(file.id));
-                                      if (neg) setDeleteTarget(neg);
-                                    }}
-                                    className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                                    title="Supprimer"
-                                  >
+                                  <button onClick={() => setDeleteTarget(n)} className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Supprimer">
                                     <Trash2 className="h-4 w-4" />
                                   </button>
                                 </div>
                               </td>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                  <Link href="/ordres-de-recettes" className="mt-4 inline-block text-[13px] font-semibold text-[#0B3C53] hover:underline">
-                    Voir tous les dossiers →
-                  </Link>
+                          );
+                        })}
+                        {filtered.length === 0 && (
+                          <tr><td colSpan={8} className="px-5 py-12 text-center text-slate-400">Aucune négociation trouvée.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
+              )}
+            </div>
 
-                {/* Colonne droite */}
-                <div className="flex flex-col gap-4 xl:col-span-1">
-                  {/* Dossiers en cours */}
-                  <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <div className="mb-4 flex items-center gap-2">
-                      <h2 className="text-[14px] font-bold text-slate-800">Dossiers en cours</h2>
-                      <Info className="h-3.5 w-3.5 text-slate-400" />
-                    </div>
-                    {data.ongoingFiles.length === 0 ? (
-                      <p className="text-[13px] text-slate-400">Aucun dossier en cours.</p>
-                    ) : (
-                      <div className="space-y-4">
-                        {data.ongoingFiles.map((file) => (
-                          <div key={file.id} className="flex items-start gap-3">
-                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-cyan-50 text-cyan-600">
-                              <CalendarClock className="h-4 w-4" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-[13px] font-semibold text-slate-800">{file.commune}</p>
-                              <p className="truncate text-[12px] text-slate-500">{file.nextAppointment}</p>
-                            </div>
-                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${tagClasses(file.tag.color)}`}>
-                              {file.tag.label}
-                            </span>
-                          </div>
-                        ))}
+            {/* Colonne droite : argumentaires */}
+            <div className="xl:col-span-1 space-y-4">
+              {/* Compteurs argumentaires */}
+              <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h2 className="mb-4 text-[14px] font-bold text-slate-800">Argumentaires prêts</h2>
+                <div className="space-y-3">
+                  {argGrouped.map((arg) => (
+                    <div key={arg.value} className="flex items-center gap-3">
+                      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${argumentaireIconClass(arg.value as ArgumentairePret["iconKey"])}`}>
+                        {argumentaireIcon(arg.value as ArgumentairePret["iconKey"])}
                       </div>
-                    )}
-                    <button className="mt-4 text-[13px] font-semibold text-[#0B3C53] hover:underline">
-                      Voir tous les dossiers en cours →
-                    </button>
-                  </div>
-
-                  {/* Argumentaires prêts */}
-                  <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <div className="mb-4 flex items-center gap-2">
-                      <h2 className="text-[14px] font-bold text-slate-800">Argumentaires prêts</h2>
-                      <Info className="h-3.5 w-3.5 text-slate-400" />
-                    </div>
-                    <div className="space-y-4">
-                      {data.readyArguments.map((arg) => (
-                        <div key={arg.id} className="flex items-center gap-3">
-                          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${readyArgumentIconClasses(arg.iconKey)}`}>
-                            {readyArgumentIcon(arg.iconKey)}
-                          </div>
-                          <span className="flex-1 text-[13px] font-medium text-slate-700">{arg.label}</span>
-                          <span className="text-[13px] font-bold text-[#0B3C53]">{arg.count} dossiers</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-medium text-slate-700 truncate">{arg.label}</p>
+                        {/* Barre de progression */}
+                        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className="h-full rounded-full bg-[#0B3C53]/60 transition-all"
+                            style={{ width: arg.count > 0 ? `${Math.min((arg.count / Math.max(...argGrouped.map((a) => a.count), 1)) * 100, 100)}%` : "0%" }}
+                          />
                         </div>
-                      ))}
+                      </div>
+                      <span className="text-[14px] font-bold text-[#0B3C53]">{arg.count}</span>
                     </div>
-                    <button className="mt-4 text-[13px] font-semibold text-[#0B3C53] hover:underline">
-                      Voir tous les argumentaires →
-                    </button>
-                  </div>
+                  ))}
+                  {argGrouped.every((a) => a.count === 0) && (
+                    <p className="text-[13px] text-slate-400">Aucun argumentaire encore ajouté.</p>
+                  )}
                 </div>
               </div>
 
-              {/* Économies mensuelles + graphe par commune + Performance */}
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-                {/* Économies mensuelles */}
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-1">
-                  <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-[14px] font-bold text-slate-800">Économies mensuelles (FCFA)</h2>
-                    <button className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-[12px] font-medium text-slate-500 hover:bg-slate-50">
-                      FCFA <ChevronDown className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={data.monthlySavings} margin={{ top: 20, right: 0, left: 0, bottom: 0 }}>
-                      <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={{ stroke: "#e2e8f0" }} tickLine={false} />
-                      <YAxis tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false}
-                        tickFormatter={(v) => `${v / 1_000_000}M`}
-                        domain={[0, Math.ceil(maxMonthlySaving / 10_000_000) * 10_000_000 || 10_000_000]}
-                      />
-                      <Tooltip cursor={{ fill: "#f8fafc" }} formatter={(value) => [`${formatNumber(Number(value))} FCFA`, "Économie"]} />
-                      <Bar dataKey="amount" fill="#0B3C53" radius={[4, 4, 0, 0]} barSize={36} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                  <Link href="/analyse-fiscale" className="mt-2 inline-block text-[13px] font-semibold text-[#0B3C53] hover:underline">
-                    Voir l&apos;analyse complète →
-                  </Link>
-                </div>
-
-                {/* Graphe économies par commune (depuis CRUD) */}
-                {chartData.length > 0 && (
-                  <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-1">
-                    <h2 className="mb-4 text-[14px] font-bold text-slate-800">Économies par commune (M FCFA)</h2>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <BarChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                        <XAxis dataKey="commune" tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                        <YAxis tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}M`} />
-                        <Tooltip formatter={(v) => [`${v}M FCFA`]} />
-                        <Legend wrapperStyle={{ fontSize: 11 }} />
-                        <Bar dataKey="initial"  name="Initial"  fill="#8B5CF6" radius={[3, 3, 0, 0]} />
-                        <Bar dataKey="negocie"  name="Négocié"  fill="#3B82F6" radius={[3, 3, 0, 0]} />
-                        <Bar dataKey="economie" name="Économie" fill="#10B981" radius={[3, 3, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-
-                {/* Performance */}
-                <div className="flex flex-col justify-center gap-4 rounded-xl border border-slate-200 bg-gradient-to-br from-[#0B3C53] to-[#0E4F66] p-6 text-white shadow-sm xl:col-span-1">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-400">
-                      <Trophy className="h-6 w-6 text-white" />
-                    </div>
-                    <h2 className="text-[14px] font-bold">Performance</h2>
-                  </div>
-                  <p className="text-[13px] leading-relaxed text-white/80">
-                    Les négociations menées sur la période ont permis une réduction moyenne de
-                  </p>
-                  <p className="text-4xl font-bold">{data.performance.averageReductionPercent} %</p>
-                  <p className="text-[13px] text-white/70">
-                    soit {formatNumber(data.performance.totalSavingsAmount)} FCFA d&apos;économies obtenues.
-                  </p>
-                </div>
+              {/* Résumé économies */}
+              <div className="rounded-xl border border-slate-200 bg-gradient-to-br from-[#0B3C53] to-[#0E4F66] p-5 text-white shadow-sm">
+                <h2 className="mb-3 text-[14px] font-bold">Performance globale</h2>
+                <p className="text-[13px] text-white/70 mb-1">Taux de réduction moyen</p>
+                <p className="text-4xl font-bold mb-3">{kpis.tauxReduction}%</p>
+                <p className="text-[13px] text-white/70 mb-1">Économies totales générées</p>
+                <p className="text-[15px] font-bold">{formatNumber(kpis.totalEconomies)} FCFA</p>
               </div>
-            </>
-          )}
+            </div>
+          </div>
         </main>
       </div>
 
@@ -892,6 +854,7 @@ export default function TableauDeBordPage() {
               </button>
             </div>
             <form id="neg-form" onSubmit={handleSubmit} className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+              {/* Identification */}
               <div>
                 <p className="mb-3 text-[11px] font-bold uppercase tracking-widest text-slate-400">Identification</p>
                 <div className="grid grid-cols-2 gap-4">
@@ -904,6 +867,7 @@ export default function TableauDeBordPage() {
                 </div>
               </div>
 
+              {/* Montants */}
               <div>
                 <p className="mb-3 text-[11px] font-bold uppercase tracking-widest text-slate-400">Montants (FCFA)</p>
                 <div className="grid grid-cols-3 gap-4">
@@ -917,24 +881,31 @@ export default function TableauDeBordPage() {
                     <TextInput type="number" value={form.montantNegocie} onChange={(v) => setForm((f) => ({ ...f, montantNegocie: v }))} placeholder="ex: 3800000" />
                   </FormField>
                 </div>
+                {/* Aperçu économie */}
                 {form.montantInitial && form.montantNegocie && (
                   <div className="mt-3 flex items-center justify-between rounded-lg bg-emerald-50 px-4 py-2.5">
                     <span className="text-[13px] text-emerald-700">Économie estimée</span>
                     <span className="text-[14px] font-bold text-emerald-700">
                       {formatNumber(parseFloat(form.montantInitial) - parseFloat(form.montantNegocie))} FCFA
-                      <span className="ml-1 font-normal text-emerald-600">
+                      {form.montantInitial && <span className="ml-1 font-normal text-emerald-600">
                         ({Math.round((1 - parseFloat(form.montantNegocie) / parseFloat(form.montantInitial)) * 100)}%)
-                      </span>
+                      </span>}
                     </span>
                   </div>
                 )}
               </div>
 
+              {/* Prochaine action */}
               <div>
                 <p className="mb-3 text-[11px] font-bold uppercase tracking-widest text-slate-400">Prochaine action</p>
                 <div className="grid grid-cols-2 gap-4">
                   <FormField label="Type d'action">
-                    <SelectInput value={form.typeProchaineAction} onChange={(v) => setForm((f) => ({ ...f, typeProchaineAction: v }))} options={TYPES_ACTION} placeholder="— Aucune —" />
+                    <SelectInput
+                      value={form.typeProchaineAction}
+                      onChange={(v) => setForm((f) => ({ ...f, typeProchaineAction: v }))}
+                      options={TYPES_ACTION}
+                      placeholder="— Aucune —"
+                    />
                   </FormField>
                   <FormField label="Date prévue">
                     <TextInput type="datetime-local" value={form.dateProchaineAction} onChange={(v) => setForm((f) => ({ ...f, dateProchaineAction: v }))} />
@@ -969,8 +940,11 @@ export default function TableauDeBordPage() {
               </button>
             </div>
             <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
+              {/* Liste des argumentaires existants */}
               <div>
-                <h3 className="mb-3 text-[12px] font-bold uppercase tracking-wide text-slate-400">Argumentaires enregistrés</h3>
+                <h3 className="mb-3 text-[12px] font-bold uppercase tracking-wide text-slate-400">
+                  Argumentaires enregistrés
+                </h3>
                 {argumentaires.filter((a) => a.negociation === argModal.id).length === 0 ? (
                   <p className="text-[13px] text-slate-400">Aucun argumentaire pour ce dossier.</p>
                 ) : (
@@ -978,8 +952,8 @@ export default function TableauDeBordPage() {
                     {argumentaires.filter((a) => a.negociation === argModal.id).map((a) => (
                       <div key={a.id} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-4 py-2.5">
                         <div className="flex items-center gap-3">
-                          <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${readyArgumentIconClasses(a.iconKey)}`}>
-                            {readyArgumentIcon(a.iconKey)}
+                          <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${argumentaireIconClass(a.iconKey)}`}>
+                            {argumentaireIcon(a.iconKey)}
                           </div>
                           <span className="text-[13px] font-medium text-slate-700">{a.label}</span>
                         </div>
@@ -991,11 +965,19 @@ export default function TableauDeBordPage() {
                   </div>
                 )}
               </div>
+
+              {/* Ajouter un argumentaire */}
               <div className="border-t border-slate-100 pt-4">
-                <h3 className="mb-3 text-[12px] font-bold uppercase tracking-wide text-slate-400">Ajouter un motif</h3>
+                <h3 className="mb-3 text-[12px] font-bold uppercase tracking-wide text-slate-400">
+                  Ajouter un motif
+                </h3>
                 <form onSubmit={handleAddArgumentaire} className="flex items-end gap-3">
                   <div className="flex-1">
-                    <SelectInput value={argForm.motif} onChange={(v) => setArgForm({ motif: v })} options={MOTIFS_ARGUMENTAIRE} />
+                    <SelectInput
+                      value={argForm.motif}
+                      onChange={(v) => setArgForm({ motif: v })}
+                      options={MOTIFS_ARGUMENTAIRE}
+                    />
                   </div>
                   <button type="submit" className="flex items-center gap-1.5 rounded-lg bg-[#0B3C53] px-3 py-2 text-[13px] font-semibold text-white hover:bg-[#0B3C53]/90">
                     <Plus className="h-4 w-4" />

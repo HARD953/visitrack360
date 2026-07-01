@@ -41,6 +41,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Handshake
 } from "lucide-react";
 import {
   BarChart,
@@ -182,13 +183,12 @@ const NAV_SECTIONS = [
       { label: "Analyse fiscale", href: "/analyse-fiscale", icon: LineChartIcon },
       { label: "Ordres de recettes", href: "/ordres-de-recettes", icon: Receipt },
       { label: "Rapports & exports", href: "/rapports-exports", icon: FileBarChart },
+    //   { label: "Negociations fiscale", href: "/negociations", icon: Handshake },
     ],
   },
   {
     label: "Administration",
     items: [
-      { label: "Agents recenseurs", href: "/agents-recenseurs", icon: Users },
-      { label: "Paramètres", href: "/parametres", icon: Settings },
       { label: "Administration", href: "/administration", icon: ShieldCheck },
     ],
   },

@@ -11,7 +11,6 @@ import {
 } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   LayoutDashboard,
@@ -43,10 +42,12 @@ import {
   SlidersHorizontal,
   RefreshCw,
   XCircle,
+  Handshake
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiFetch, getAccessToken } from "@/lib/api/client";
 import type { SupportPublicitaire, EtatSupport, Canal, Visibilite } from "@/types/dashboard";
+import BulkImportModal from "@/components/BulkImportModal";
 
 // ---------------------------------------------------------------------------
 // Leaflet chargé dynamiquement (contrainte SSR)
@@ -123,6 +124,58 @@ interface Support {
   isDeleted: boolean;
 }
 
+// Types pour les endpoints des listes déroulantes
+interface GeoCommune {
+  id: number;
+  nom: string;
+  code: string;
+  region: number;
+}
+
+interface GeoRegion {
+  id: number;
+  nom: string;
+  code: string;
+  district: number;
+}
+
+interface GeoDistrict {
+  id: number;
+  nom: string;
+  code: string;
+}
+
+interface Agent {
+  id: number;
+  nom: string;
+  prenom: string;
+  email: string;
+  nomComplet: string;
+}
+
+interface ReferentielSupport {
+  id: number;
+  type_support: string;
+  entreprise: string;
+  surface: number | null;
+  nombre_face: number | null;
+}
+
+interface ReferentielCanal {
+  id: number;
+  canal: string;
+}
+
+interface ReferentielEtat {
+  id: number;
+  etat: string;
+}
+
+interface ReferentielVisibilite {
+  id: number;
+  visibilite: string;
+}
+
 interface FiltresDisponibles {
   communes: string[];
   typesSupport: string[];
@@ -174,7 +227,6 @@ const VISIBILITE_BADGE: Record<string, string> = {
   Faible: "bg-orange-100 text-orange-700",
 };
 
-// Image URL absolue depuis le back
 function imageUrl(path: string | null): string | null {
   if (!path) return null;
   if (path.startsWith("http")) return path;
@@ -238,7 +290,7 @@ function emptyForm(): Partial<Support> & {
 }
 
 // ---------------------------------------------------------------------------
-// Navigation (dupliquée volontairement)
+// Navigation
 // ---------------------------------------------------------------------------
 
 const NAV_SECTIONS = [
@@ -257,13 +309,12 @@ const NAV_SECTIONS = [
       { label: "Analyse fiscale", href: "/analyse-fiscale", icon: LineChartIcon },
       { label: "Ordres de recettes", href: "/ordres-de-recettes", icon: Receipt },
       { label: "Rapports & exports", href: "/rapports-exports", icon: FileBarChart },
+    //   { label: "Negociations fiscale", href: "/negociations", icon: Handshake },
     ],
   },
   {
     label: "Administration",
     items: [
-      { label: "Agents recenseurs", href: "/agents-recenseurs", icon: Users },
-      { label: "Paramètres", href: "/parametres", icon: Settings },
       { label: "Administration", href: "/administration", icon: ShieldCheck },
     ],
   },
@@ -283,13 +334,24 @@ function SectionTitle({ children }: { children: ReactNode }) {
   );
 }
 
-function FormField({ label, children, required }: { label: string; children: ReactNode; required?: boolean }) {
+function FormField({
+  label,
+  children,
+  required,
+  error,
+}: {
+  label: string;
+  children: ReactNode;
+  required?: boolean;
+  error?: string;
+}) {
   return (
     <div>
       <label className="mb-1.5 block text-[12px] font-medium text-slate-500">
         {label} {required && <span className="text-red-500">*</span>}
       </label>
       {children}
+      {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
     </div>
   );
 }
@@ -300,12 +362,14 @@ function TextInput({
   type = "text",
   placeholder = "",
   required = false,
+  error,
 }: {
   value: string | number | null;
   onChange: (v: string) => void;
   type?: string;
   placeholder?: string;
   required?: boolean;
+  error?: string;
 }) {
   return (
     <input
@@ -314,7 +378,7 @@ function TextInput({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       required={required}
-      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-800 outline-none focus:border-[#0B3C53] focus:ring-1 focus:ring-[#0B3C53]/20"
+      className={`w-full rounded-lg border ${error ? 'border-red-300' : 'border-slate-200'} px-3 py-2 text-[13px] text-slate-800 outline-none focus:border-[#0B3C53] focus:ring-1 focus:ring-[#0B3C53]/20`}
     />
   );
 }
@@ -325,24 +389,29 @@ function SelectInput({
   options,
   placeholder,
   required = false,
+  error,
+  isLoading = false,
 }: {
   value: string;
   onChange: (v: string) => void;
-  options: string[];
+  options: { value: string; label: string }[];
   placeholder?: string;
   required?: boolean;
+  error?: string;
+  isLoading?: boolean;
 }) {
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
       required={required}
-      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-800 outline-none focus:border-[#0B3C53]"
+      disabled={isLoading}
+      className={`w-full rounded-lg border ${error ? 'border-red-300' : 'border-slate-200'} px-3 py-2 text-[13px] text-slate-800 outline-none focus:border-[#0B3C53] disabled:opacity-60`}
     >
-      {placeholder && <option value="">{placeholder}</option>}
+      {placeholder && <option value="">{isLoading ? "Chargement..." : placeholder}</option>}
       {options.map((o) => (
-        <option key={o} value={o}>
-          {o}
+        <option key={o.value} value={o.value}>
+          {o.label}
         </option>
       ))}
     </select>
@@ -475,11 +544,7 @@ function ImageUploadField({
         </div>
       ) : preview ? (
         <div className="relative overflow-hidden rounded-lg border border-slate-200">
-          <img
-            src={preview}
-            alt="Aperçu"
-            className="h-40 w-full object-cover"
-          />
+          <img src={preview} alt="Aperçu" className="h-40 w-full object-cover" />
           <button
             type="button"
             onClick={clearImage}
@@ -535,6 +600,17 @@ export default function SupportsPublicitairesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Données pour les listes déroulantes
+  const [communes, setCommunes] = useState<GeoCommune[]>([]);
+  const [regions, setRegions] = useState<GeoRegion[]>([]);
+  const [districts, setDistricts] = useState<GeoDistrict[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [typesSupport, setTypesSupport] = useState<ReferentielSupport[]>([]);
+  const [canaux, setCanaux] = useState<ReferentielCanal[]>([]);
+  const [etats, setEtats] = useState<ReferentielEtat[]>([]);
+  const [visibilites, setVisibilites] = useState<ReferentielVisibilite[]>([]);
+  const [isLoadingSelects, setIsLoadingSelects] = useState(true);
+
   // Vue
   const [viewMode, setViewMode] = useState<"liste" | "carte">("liste");
 
@@ -554,6 +630,9 @@ export default function SupportsPublicitairesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
+  // Modal import en masse
+  const [importModalOpen, setImportModalOpen] = useState(false);
+
   // Modal image plein écran
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
@@ -565,7 +644,93 @@ export default function SupportsPublicitairesPage() {
     if (!user) router.replace("/login");
   }, [user, router]);
 
-  // Charger les filtres disponibles
+  // =========================================================================
+  // Chargement des données pour les listes déroulantes
+  // =========================================================================
+  useEffect(() => {
+    if (!user) return;
+
+    const loadSelectData = async () => {
+      setIsLoadingSelects(true);
+      try {
+        const [
+          communesRes,
+          regionsRes,
+          districtsRes,
+          agentsRes,
+          typesRes,
+          canauxRes,
+          etatsRes,
+          visibilitesRes,
+        ] = await Promise.all([
+          apiFetch<PaginatedResponse<GeoCommune> | GeoCommune[]>("/api/geo/communes/?is_active=true"),
+          apiFetch<PaginatedResponse<GeoRegion> | GeoRegion[]>("/api/geo/regions/?is_active=true"),
+          apiFetch<PaginatedResponse<GeoDistrict> | GeoDistrict[]>("/api/geo/districts/?is_active=true"),
+          apiFetch<PaginatedResponse<Agent> | Agent[]>("/api/users/?role=AGENT&is_active=true"),
+          apiFetch<PaginatedResponse<ReferentielSupport> | ReferentielSupport[]>("/api/referentiels/supports/"),
+          apiFetch<PaginatedResponse<ReferentielCanal> | ReferentielCanal[]>("/api/referentiels/canaux/"),
+          apiFetch<PaginatedResponse<ReferentielEtat> | ReferentielEtat[]>("/api/referentiels/etats/"),
+          apiFetch<PaginatedResponse<ReferentielVisibilite> | ReferentielVisibilite[]>("/api/referentiels/visibilites/"),
+        ]);
+
+        setCommunes(Array.isArray(communesRes) ? communesRes : communesRes.results || []);
+        setRegions(Array.isArray(regionsRes) ? regionsRes : regionsRes.results || []);
+        setDistricts(Array.isArray(districtsRes) ? districtsRes : districtsRes.results || []);
+        setAgents(Array.isArray(agentsRes) ? agentsRes : agentsRes.results || []);
+        setTypesSupport(Array.isArray(typesRes) ? typesRes : typesRes.results || []);
+        setCanaux(Array.isArray(canauxRes) ? canauxRes : canauxRes.results || []);
+        setEtats(Array.isArray(etatsRes) ? etatsRes : etatsRes.results || []);
+        setVisibilites(Array.isArray(visibilitesRes) ? visibilitesRes : visibilitesRes.results || []);
+      } catch (error) {
+        console.error("Erreur chargement listes déroulantes:", error);
+      } finally {
+        setIsLoadingSelects(false);
+      }
+    };
+
+    loadSelectData();
+  }, [user]);
+
+  // =========================================================================
+  // Options pour les selects
+  // =========================================================================
+
+  const communeOptions = useMemo(() => {
+    return communes.map((c) => ({ value: c.nom, label: c.nom }));
+  }, [communes]);
+
+  const regionOptions = useMemo(() => {
+    return regions.map((r) => ({ value: r.nom, label: r.nom }));
+  }, [regions]);
+
+  const districtOptions = useMemo(() => {
+    return districts.map((d) => ({ value: d.nom, label: d.nom }));
+  }, [districts]);
+
+  const agentOptions = useMemo(() => {
+    return agents.map((a) => ({
+      value: String(a.id),
+      label: a.nomComplet || `${a.prenom} ${a.nom}`,
+    }));
+  }, [agents]);
+
+  const typeSupportOptions = useMemo(() => {
+    return typesSupport.map((t) => ({ value: t.type_support, label: t.type_support }));
+  }, [typesSupport]);
+
+  const canalOptions = useMemo(() => {
+    return canaux.map((c) => ({ value: c.canal, label: c.canal }));
+  }, [canaux]);
+
+  const etatOptions = useMemo(() => {
+    return etats.map((e) => ({ value: e.etat, label: e.etat }));
+  }, [etats]);
+
+  const visibiliteOptions = useMemo(() => {
+    return visibilites.map((v) => ({ value: v.visibilite, label: v.visibilite }));
+  }, [visibilites]);
+
+  // Charger les filtres disponibles (pour le composant existant)
   useEffect(() => {
     if (!user) return;
     apiFetch<FiltresDisponibles>("/api/supports/filtres-disponibles/")
@@ -637,114 +802,72 @@ export default function SupportsPublicitairesPage() {
 
   function openEdit(s: Support) {
     setEditingSupport(s);
-    setForm({
-      ...s,
-      imageSupportFile: null,
-      imageSupportSecondaireFile: null,
-    });
+    setForm({ ...s, imageSupportFile: null, imageSupportSecondaireFile: null });
     setValidationErrors({});
     setModalOpen(true);
   }
 
   function validateForm(): boolean {
     const errors: Record<string, string> = {};
-    
-    // Champs obligatoires
-    if (!form.signataireNom?.trim()) {
-      errors.signataireNom = "Le nom du signataire est obligatoire";
-    }
-    if (!form.signatairePrenom?.trim()) {
-      errors.signatairePrenom = "Le prénom du signataire est obligatoire";
-    }
-    if (!form.signataireContact?.trim()) {
-      errors.signataireContact = "Le contact du signataire est obligatoire";
-    }
-    if (!form.typeSite?.trim()) {
-      errors.typeSite = "Le type de site est obligatoire";
-    }
-    if (!form.nombreSupport || form.nombreSupport <= 0) {
-      errors.nombreSupport = "Le nombre de supports est obligatoire";
-    }
-    if (form.surfaceODP === undefined || form.surfaceODP === null || form.surfaceODP < 0) {
-      errors.surfaceODP = "La surface ODP est obligatoire";
-    }
-    if (!form.responsableNom?.trim()) {
-      errors.responsableNom = "Le nom du responsable est obligatoire";
-    }
-    if (!form.responsablePrenom?.trim()) {
-      errors.responsablePrenom = "Le prénom du responsable est obligatoire";
-    }
-    if (!form.responsableContact?.trim()) {
-      errors.responsableContact = "Le contact du responsable est obligatoire";
-    }
-
+    if (!form.signataireNom?.trim()) errors.signataireNom = "Le nom du signataire est obligatoire";
+    if (!form.signatairePrenom?.trim()) errors.signatairePrenom = "Le prénom du signataire est obligatoire";
+    if (!form.signataireContact?.trim()) errors.signataireContact = "Le contact du signataire est obligatoire";
+    if (!form.typeSite?.trim()) errors.typeSite = "Le type de site est obligatoire";
+    if (!form.nombreSupport || form.nombreSupport <= 0) errors.nombreSupport = "Le nombre de supports est obligatoire";
+    if (form.surfaceODP === undefined || form.surfaceODP === null || form.surfaceODP < 0) errors.surfaceODP = "La surface ODP est obligatoire";
+    if (!form.responsableNom?.trim()) errors.responsableNom = "Le nom du responsable est obligatoire";
+    if (!form.responsablePrenom?.trim()) errors.responsablePrenom = "Le prénom du responsable est obligatoire";
+    if (!form.responsableContact?.trim()) errors.responsableContact = "Le contact du responsable est obligatoire";
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    
-    // Validation
     if (!validateForm()) {
-      // Scroll vers le premier champ en erreur
       const firstError = document.querySelector('[data-error="true"]');
-      if (firstError) {
-        firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
+      if (firstError) firstError.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
 
     setIsSubmitting(true);
-
     try {
       const fd = new FormData();
 
-      // Champs texte obligatoires
       const requiredTextFields = [
-        "marque", "entreprise", "ville", "commune", "region",
-        "district", "village", "quartier", "nomSite", "typeSupport",
-        "canal", "etatSupport", "typeSite", "visibilite",
-        "description", "observation",
-        "responsableNom", "responsablePrenom", "responsableContact",
-        "signataireNom", "signatairePrenom", "signataireContact",
+        "marque","entreprise","ville","commune","region","district",
+        "village","quartier","nomSite","typeSupport","canal","etatSupport",
+        "typeSite","visibilite","description","observation",
+        "responsableNom","responsablePrenom","responsableContact",
+        "signataireNom","signatairePrenom","signataireContact",
       ];
       requiredTextFields.forEach((k) => {
         const v = form[k as keyof typeof form];
-        if (v !== null && v !== undefined && v !== "") {
-          fd.append(k, String(v));
-        }
+        if (v !== null && v !== undefined && v !== "") fd.append(k, String(v));
       });
 
-      // Champs numériques obligatoires
       fd.append("nombreSupport", String(form.nombreSupport || 1));
       fd.append("nombreFace", String(form.nombreFace || 1));
       fd.append("surfaceODP", String(form.surfaceODP || 0));
 
-      // Champs numériques optionnels
       const numFields: (keyof typeof form)[] = [
-        "surface", "duree", "tsp", "odpValue", "latitude", "longitude",
+        "surface","duree","tsp","odpValue","latitude","longitude",
       ];
       numFields.forEach((k) => {
         const v = form[k];
-        if (v !== null && v !== undefined && v !== "") {
-          fd.append(k as string, String(v));
-        }
+        if (v !== null && v !== undefined && v !== "") fd.append(k as string, String(v));
       });
 
-      // Champs booléens
       const boolFields: (keyof typeof form)[] = [
-        "anciennete", "odp", "ap", "apa", "apt",
-        "ae", "aea", "aet", "tauxCommune", "tauxRegion", "tauxDistrict",
+        "anciennete","odp","ap","apa","apt","ae","aea","aet",
+        "tauxCommune","tauxRegion","tauxDistrict",
       ];
       boolFields.forEach((k) => {
         fd.append(k as string, form[k] ? "true" : "false");
       });
 
-      // Images
       if (form.imageSupportFile) fd.append("image_support", form.imageSupportFile);
-      if (form.imageSupportSecondaireFile)
-        fd.append("image_support_s", form.imageSupportSecondaireFile);
+      if (form.imageSupportSecondaireFile) fd.append("image_support_s", form.imageSupportSecondaireFile);
 
       const token = getAccessToken();
       const headers: Record<string, string> = {};
@@ -756,20 +879,13 @@ export default function SupportsPublicitairesPage() {
       const method = editingSupport ? "PATCH" : "POST";
 
       const res = await fetch(url, { method, headers, body: fd });
-      
+
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        console.error("Erreur serveur:", errorData);
-        
-        // Gérer les erreurs de validation du backend
-        if (errorData && typeof errorData === 'object') {
+        if (errorData && typeof errorData === "object") {
           const backendErrors: Record<string, string> = {};
           Object.entries(errorData).forEach(([key, value]) => {
-            if (Array.isArray(value)) {
-              backendErrors[key] = value.join(', ');
-            } else if (typeof value === 'string') {
-              backendErrors[key] = value;
-            }
+            backendErrors[key] = Array.isArray(value) ? value.join(", ") : String(value);
           });
           if (Object.keys(backendErrors).length > 0) {
             setValidationErrors(backendErrors);
@@ -780,11 +896,8 @@ export default function SupportsPublicitairesPage() {
       }
 
       const saved: Support = await res.json();
-
       if (editingSupport) {
-        setSupports((prev) =>
-          prev.map((s) => (s.id === saved.id ? saved : s))
-        );
+        setSupports((prev) => prev.map((s) => (s.id === saved.id ? saved : s)));
       } else {
         setSupports((prev) => [saved, ...prev]);
         setTotal((t) => t + 1);
@@ -803,12 +916,8 @@ export default function SupportsPublicitairesPage() {
   async function handleSoftDelete() {
     if (!deleteTarget) return;
     try {
-      await apiFetch(`/api/supports/${deleteTarget.id}/soft_delete/`, {
-        method: "POST",
-      });
-      setSupports((prev) =>
-        prev.filter((s) => s.id !== deleteTarget.id)
-      );
+      await apiFetch(`/api/supports/${deleteTarget.id}/soft_delete/`, { method: "POST" });
+      setSupports((prev) => prev.filter((s) => s.id !== deleteTarget.id));
       setTotal((t) => t - 1);
       setDeleteTarget(null);
     } catch {
@@ -830,6 +939,7 @@ export default function SupportsPublicitairesPage() {
 
   return (
     <div className="flex min-h-screen bg-[#F5F7FA]">
+
       {/* ===================== SIDEBAR ===================== */}
       <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
         <div className="flex items-center gap-2.5 px-5 py-5">
@@ -901,6 +1011,7 @@ export default function SupportsPublicitairesPage() {
 
       {/* ===================== MAIN ===================== */}
       <div className="flex min-w-0 flex-1 flex-col">
+
         {/* HEADER */}
         <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
           <div>
@@ -926,6 +1037,7 @@ export default function SupportsPublicitairesPage() {
         </header>
 
         <main className="flex-1 px-6 py-6">
+
           {/* Titre + actions */}
           <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="border-l-4 border-[#0B3C53] pl-3">
@@ -934,7 +1046,7 @@ export default function SupportsPublicitairesPage() {
                 Recensement, état et fiscalité des supports terrain
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               {/* Bascule liste / carte */}
               <div className="flex items-center rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
                 <button
@@ -960,6 +1072,17 @@ export default function SupportsPublicitairesPage() {
                   Carte
                 </button>
               </div>
+
+              {/* ── Bouton Import en masse ── */}
+              <button
+                onClick={() => setImportModalOpen(true)}
+                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-[13px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 hover:border-slate-300 transition-colors"
+              >
+                <Upload className="h-4 w-4" />
+                Importer
+              </button>
+
+              {/* ── Bouton Nouveau support ── */}
               <button
                 onClick={openCreate}
                 className="flex items-center gap-2 rounded-lg bg-[#0B3C53] px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm hover:bg-[#0B3C53]/90"
@@ -997,7 +1120,7 @@ export default function SupportsPublicitairesPage() {
             })}
           </div>
 
-          {/* Filtres */}
+          {/* Filtres - Utilisation des options chargées depuis les endpoints */}
           <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-3 flex items-center gap-3">
               <div className="relative flex-1">
@@ -1018,68 +1141,95 @@ export default function SupportsPublicitairesPage() {
               </button>
             </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-              {[
-                {
-                  label: "Commune",
-                  value: filterCommune,
-                  setter: setFilterCommune,
-                  options: filtres?.communes ?? [],
-                  placeholder: "Toutes",
-                },
-                {
-                  label: "Type de support",
-                  value: filterType,
-                  setter: setFilterType,
-                  options: filtres?.typesSupport ?? [],
-                  placeholder: "Tous",
-                },
-                {
-                  label: "État",
-                  value: filterEtat,
-                  setter: setFilterEtat,
-                  options: filtres?.etatsSupport ?? ["Bon", "Défraichi", "Détérioré"],
-                  placeholder: "Tous",
-                },
-                {
-                  label: "Visibilité",
-                  value: filterVisibilite,
-                  setter: setFilterVisibilite,
-                  options: filtres?.visibilites ?? [],
-                  placeholder: "Toutes",
-                },
-                {
-                  label: "Canal",
-                  value: filterCanal,
-                  setter: setFilterCanal,
-                  options: filtres?.canaux ?? [],
-                  placeholder: "Tous",
-                },
-                {
-                  label: "Agent",
-                  value: filterAgent,
-                  setter: setFilterAgent,
-                  options: (filtres?.agents ?? []).map((a) => a.nomComplet),
-                  placeholder: "Tous",
-                },
-              ].map((f) => (
-                <label key={f.label} className="block">
-                  <span className="mb-1 block text-[11px] font-medium text-slate-400">
-                    {f.label}
-                  </span>
-                  <select
-                    value={f.value}
-                    onChange={(e) => f.setter(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none focus:border-[#0B3C53]"
-                  >
-                    <option value="">{f.placeholder}</option>
-                    {f.options.map((o) => (
-                      <option key={o} value={o}>
-                        {o}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ))}
+              {/* Commune */}
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium text-slate-400">Commune</span>
+                <select
+                  value={filterCommune}
+                  onChange={(e) => setFilterCommune(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none focus:border-[#0B3C53]"
+                >
+                  <option value="">Toutes</option>
+                  {communeOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </label>
+
+              {/* Type de support */}
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium text-slate-400">Type de support</span>
+                <select
+                  value={filterType}
+                  onChange={(e) => setFilterType(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none focus:border-[#0B3C53]"
+                >
+                  <option value="">Tous</option>
+                  {typeSupportOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </label>
+
+              {/* État */}
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium text-slate-400">État</span>
+                <select
+                  value={filterEtat}
+                  onChange={(e) => setFilterEtat(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none focus:border-[#0B3C53]"
+                >
+                  <option value="">Tous</option>
+                  {etatOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </label>
+
+              {/* Visibilité */}
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium text-slate-400">Visibilité</span>
+                <select
+                  value={filterVisibilite}
+                  onChange={(e) => setFilterVisibilite(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none focus:border-[#0B3C53]"
+                >
+                  <option value="">Toutes</option>
+                  {visibiliteOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </label>
+
+              {/* Canal */}
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium text-slate-400">Canal</span>
+                <select
+                  value={filterCanal}
+                  onChange={(e) => setFilterCanal(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none focus:border-[#0B3C53]"
+                >
+                  <option value="">Tous</option>
+                  {canalOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </label>
+
+              {/* Agent */}
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium text-slate-400">Agent</span>
+                <select
+                  value={filterAgent}
+                  onChange={(e) => setFilterAgent(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none focus:border-[#0B3C53]"
+                >
+                  <option value="">Tous</option>
+                  {agentOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </label>
             </div>
           </div>
 
@@ -1094,10 +1244,7 @@ export default function SupportsPublicitairesPage() {
             <div className="flex items-center gap-3 rounded-lg border border-red-100 bg-red-50 px-4 py-3">
               <AlertCircle className="h-4 w-4 text-red-500" />
               <p className="text-[13px] text-red-700">{error}</p>
-              <button
-                onClick={loadSupports}
-                className="ml-auto text-[13px] font-semibold text-red-700 underline"
-              >
+              <button onClick={loadSupports} className="ml-auto text-[13px] font-semibold text-red-700 underline">
                 Réessayer
               </button>
             </div>
@@ -1132,11 +1279,7 @@ export default function SupportsPublicitairesPage() {
                     {supports.map((s) => {
                       const imgUrl = imageUrl(s.imageSupport);
                       return (
-                        <tr
-                          key={s.id}
-                          className="border-b border-slate-100 last:border-0 hover:bg-slate-50"
-                        >
-                          {/* Miniature photo */}
+                        <tr key={s.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                           <td className="px-4 py-2.5">
                             {imgUrl ? (
                               <button
@@ -1162,45 +1305,23 @@ export default function SupportsPublicitairesPage() {
                             <p className="font-semibold text-slate-800">{s.marque}</p>
                             <p className="text-[12px] text-slate-400">{s.nomSite}</p>
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">
-                            {s.typeSupport || "—"}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">
-                            {s.commune}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">
-                            {s.surface ? `${s.surface} m²` : "—"}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">
-                            {s.nombreFace ?? "—"}
-                          </td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{s.typeSupport || "—"}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{s.commune}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{s.surface ? `${s.surface} m²` : "—"}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{s.nombreFace ?? "—"}</td>
                           <td className="whitespace-nowrap px-3 py-2.5">
-                            <span
-                              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold ${
-                                ETAT_BADGE[s.etatSupport] ?? "bg-slate-100 text-slate-600"
-                              }`}
-                            >
-                              <span
-                                className={`h-1.5 w-1.5 rounded-full ${ETAT_DOT[s.etatSupport] ?? "bg-slate-400"}`}
-                              />
+                            <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold ${ETAT_BADGE[s.etatSupport] ?? "bg-slate-100 text-slate-600"}`}>
+                              <span className={`h-1.5 w-1.5 rounded-full ${ETAT_DOT[s.etatSupport] ?? "bg-slate-400"}`} />
                               {s.etatSupport}
                             </span>
                           </td>
                           <td className="whitespace-nowrap px-3 py-2.5">
-                            <span
-                              className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
-                                VISIBILITE_BADGE[s.visibilite] ?? "bg-slate-100 text-slate-600"
-                              }`}
-                            >
+                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${VISIBILITE_BADGE[s.visibilite] ?? "bg-slate-100 text-slate-600"}`}>
                               {s.visibilite || "—"}
                             </span>
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-[12px] text-slate-500">
-                            {s.agentNom ?? "—"}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-[12px] text-slate-500">
-                            {formatDate(s.dateCollecte)}
-                          </td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-[12px] text-slate-500">{s.agentNom ?? "—"}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-[12px] text-slate-500">{formatDate(s.dateCollecte)}</td>
                           <td className="px-3 py-2.5">
                             <div className="flex items-center justify-end gap-1">
                               <button
@@ -1238,21 +1359,21 @@ export default function SupportsPublicitairesPage() {
           {/* Vue carte */}
           {!isLoading && !error && viewMode === "carte" && (
             <div className="h-[580px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                <SupportsMap
+              <SupportsMap
                 supports={supports.map((s) => ({
-                    ...s,
-                    id: String(s.id),
-                    agent: s.agent != null ? String(s.agent) : "",
-                    agentNom: s.agentNom ?? "",
-                    etatSupport: s.etatSupport as EtatSupport,
-                    canal: s.canal as Canal,
-                    visibilite: (s.visibilite || "Moyenne") as Visibilite,
+                  ...s,
+                  id: String(s.id),
+                  agent: s.agent != null ? String(s.agent) : "",
+                  agentNom: s.agentNom ?? "",
+                  etatSupport: s.etatSupport as EtatSupport,
+                  canal: s.canal as Canal,
+                  visibilite: (s.visibilite || "Moyenne") as Visibilite,
                 })) as SupportPublicitaire[]}
                 onEdit={(s) => {
-                    const original = supports.find((x) => String(x.id) === s.id);
-                    if (original) openEdit(original);
+                  const original = supports.find((x) => String(x.id) === s.id);
+                  if (original) openEdit(original);
                 }}
-                />
+              />
             </div>
           )}
         </main>
@@ -1262,26 +1383,16 @@ export default function SupportsPublicitairesPage() {
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
           <div className="flex max-h-[92vh] w-full max-w-4xl flex-col rounded-xl bg-white shadow-2xl">
-            {/* En-tête modal */}
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
               <h2 className="text-[16px] font-bold text-slate-900">
                 {editingSupport ? "Modifier le support" : "Nouveau support"}
               </h2>
-              <button
-                onClick={() => setModalOpen(false)}
-                className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100"
-              >
+              <button onClick={() => setModalOpen(false)} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100">
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            {/* Corps scrollable */}
-            <form
-              id="support-form"
-              onSubmit={handleSubmit}
-              className="flex-1 space-y-6 overflow-y-auto px-6 py-5"
-            >
-              {/* Affichage des erreurs globales */}
+            <form id="support-form" onSubmit={handleSubmit} className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
               {Object.keys(validationErrors).length > 0 && (
                 <div className="rounded-lg border border-red-200 bg-red-50 p-4">
                   <p className="mb-2 text-sm font-semibold text-red-700">Veuillez corriger les erreurs suivantes :</p>
@@ -1298,185 +1409,150 @@ export default function SupportsPublicitairesPage() {
                 <SectionTitle>Identification</SectionTitle>
                 <div className="grid grid-cols-3 gap-4">
                   <FormField label="Marque" required>
-                    <TextInput
-                      value={form.marque ?? ""}
-                      onChange={(v) => setForm((f) => ({ ...f, marque: v }))}
-                      required
-                    />
+                    <TextInput value={form.marque ?? ""} onChange={(v) => setForm((f) => ({ ...f, marque: v }))} required />
                   </FormField>
                   <FormField label="Entreprise">
-                    <TextInput
-                      value={form.entreprise ?? ""}
-                      onChange={(v) => setForm((f) => ({ ...f, entreprise: v }))}
-                    />
+                    <TextInput value={form.entreprise ?? ""} onChange={(v) => setForm((f) => ({ ...f, entreprise: v }))} />
                   </FormField>
                   <FormField label="Nom du site">
-                    <TextInput
-                      value={form.nomSite ?? ""}
-                      onChange={(v) => setForm((f) => ({ ...f, nomSite: v }))}
-                    />
+                    <TextInput value={form.nomSite ?? ""} onChange={(v) => setForm((f) => ({ ...f, nomSite: v }))} />
                   </FormField>
                 </div>
               </div>
 
-              {/* Localisation */}
+              {/* Localisation - Utilisation des selects avec données des endpoints */}
               <div>
                 <SectionTitle>Localisation</SectionTitle>
                 <div className="grid grid-cols-3 gap-4">
                   <FormField label="Commune">
-                    {filtres?.communes.length ? (
-                      <SelectInput
-                        value={form.commune ?? ""}
-                        onChange={(v) => setForm((f) => ({ ...f, commune: v }))}
-                        options={filtres.communes}
-                        placeholder="— Choisir —"
-                      />
-                    ) : (
-                      <TextInput
-                        value={form.commune ?? ""}
-                        onChange={(v) => setForm((f) => ({ ...f, commune: v }))}
-                        placeholder="ex: Cocody"
-                      />
-                    )}
+                    <SelectInput
+                      value={form.commune ?? ""}
+                      onChange={(v) => setForm((f) => ({ ...f, commune: v }))}
+                      options={communeOptions}
+                      placeholder="— Choisir —"
+                      isLoading={isLoadingSelects}
+                    />
+                  </FormField>
+                  <FormField label="Région">
+                    <SelectInput
+                      value={form.region ?? ""}
+                      onChange={(v) => setForm((f) => ({ ...f, region: v }))}
+                      options={regionOptions}
+                      placeholder="— Choisir —"
+                      isLoading={isLoadingSelects}
+                    />
+                  </FormField>
+                  <FormField label="District">
+                    <SelectInput
+                      value={form.district ?? ""}
+                      onChange={(v) => setForm((f) => ({ ...f, district: v }))}
+                      options={districtOptions}
+                      placeholder="— Choisir —"
+                      isLoading={isLoadingSelects}
+                    />
                   </FormField>
                   <FormField label="Quartier">
-                    <TextInput
-                      value={form.quartier ?? ""}
-                      onChange={(v) => setForm((f) => ({ ...f, quartier: v }))}
-                    />
+                    <TextInput value={form.quartier ?? ""} onChange={(v) => setForm((f) => ({ ...f, quartier: v }))} />
                   </FormField>
                   <FormField label="Ville">
-                    <TextInput
-                      value={form.ville ?? ""}
-                      onChange={(v) => setForm((f) => ({ ...f, ville: v }))}
-                    />
+                    <TextInput value={form.ville ?? ""} onChange={(v) => setForm((f) => ({ ...f, ville: v }))} />
+                  </FormField>
+                  <FormField label="Village">
+                    <TextInput value={form.village ?? ""} onChange={(v) => setForm((f) => ({ ...f, village: v }))} />
                   </FormField>
                   <FormField label="Latitude">
-                    <TextInput
-                      type="number"
-                      value={form.latitude ?? null}
-                      onChange={(v) =>
-                        setForm((f) => ({ ...f, latitude: v ? parseFloat(v) : null }))
-                      }
-                      placeholder="ex: 5.3247"
-                    />
+                    <TextInput type="number" value={form.latitude ?? null} onChange={(v) => setForm((f) => ({ ...f, latitude: v ? parseFloat(v) : null }))} placeholder="ex: 5.3247" />
                   </FormField>
                   <FormField label="Longitude">
-                    <TextInput
-                      type="number"
-                      value={form.longitude ?? null}
-                      onChange={(v) =>
-                        setForm((f) => ({ ...f, longitude: v ? parseFloat(v) : null }))
-                      }
-                      placeholder="ex: -4.0187"
-                    />
+                    <TextInput type="number" value={form.longitude ?? null} onChange={(v) => setForm((f) => ({ ...f, longitude: v ? parseFloat(v) : null }))} placeholder="ex: -4.0187" />
                   </FormField>
                 </div>
               </div>
 
-              {/* Caractéristiques */}
+              {/* Caractéristiques - Utilisation des selects avec données des endpoints */}
               <div>
                 <SectionTitle>Caractéristiques techniques</SectionTitle>
                 <div className="grid grid-cols-3 gap-4">
                   <FormField label="Type de support">
-                    {filtres?.typesSupport.length ? (
-                      <SelectInput
-                        value={form.typeSupport ?? ""}
-                        onChange={(v) => setForm((f) => ({ ...f, typeSupport: v }))}
-                        options={filtres.typesSupport}
-                        placeholder="— Choisir —"
-                      />
-                    ) : (
-                      <TextInput
-                        value={form.typeSupport ?? ""}
-                        onChange={(v) => setForm((f) => ({ ...f, typeSupport: v }))}
-                      />
-                    )}
+                    <SelectInput
+                      value={form.typeSupport ?? ""}
+                      onChange={(v) => setForm((f) => ({ ...f, typeSupport: v }))}
+                      options={typeSupportOptions}
+                      placeholder="— Choisir —"
+                      isLoading={isLoadingSelects}
+                    />
                   </FormField>
                   <FormField label="Canal">
-                    {filtres?.canaux.length ? (
-                      <SelectInput
-                        value={form.canal ?? ""}
-                        onChange={(v) => setForm((f) => ({ ...f, canal: v }))}
-                        options={filtres.canaux}
-                        placeholder="— Choisir —"
-                      />
-                    ) : (
-                      <TextInput
-                        value={form.canal ?? ""}
-                        onChange={(v) => setForm((f) => ({ ...f, canal: v }))}
-                      />
-                    )}
+                    <SelectInput
+                      value={form.canal ?? ""}
+                      onChange={(v) => setForm((f) => ({ ...f, canal: v }))}
+                      options={canalOptions}
+                      placeholder="— Choisir —"
+                      isLoading={isLoadingSelects}
+                    />
                   </FormField>
                   <FormField label="Surface (m²)">
-                    <TextInput
-                      type="number"
-                      value={form.surface ?? null}
-                      onChange={(v) =>
-                        setForm((f) => ({ ...f, surface: v ? parseFloat(v) : null }))
-                      }
-                    />
+                    <TextInput type="number" value={form.surface ?? null} onChange={(v) => setForm((f) => ({ ...f, surface: v ? parseFloat(v) : null }))} />
                   </FormField>
-                  <FormField label="Nombre de supports *" required>
-                    <TextInput
-                      type="number"
-                      value={form.nombreSupport ?? 1}
-                      onChange={(v) =>
-                        setForm((f) => ({ ...f, nombreSupport: v ? parseFloat(v) : 1 }))
-                      }
-                      required
+                  <FormField label="Nombre de supports" required error={validationErrors.nombreSupport}>
+                    <TextInput 
+                      type="number" 
+                      value={form.nombreSupport ?? 1} 
+                      onChange={(v) => setForm((f) => ({ ...f, nombreSupport: v ? parseFloat(v) : 1 }))} 
+                      required 
+                      error={validationErrors.nombreSupport}
                     />
-                    {validationErrors.nombreSupport && (
-                      <p className="mt-1 text-xs text-red-500">{validationErrors.nombreSupport}</p>
-                    )}
                   </FormField>
                   <FormField label="Nombre de faces">
-                    <TextInput
-                      type="number"
-                      value={form.nombreFace ?? 1}
-                      onChange={(v) =>
-                        setForm((f) => ({ ...f, nombreFace: v ? parseFloat(v) : 1 }))
-                      }
-                    />
+                    <TextInput type="number" value={form.nombreFace ?? 1} onChange={(v) => setForm((f) => ({ ...f, nombreFace: v ? parseFloat(v) : 1 }))} />
                   </FormField>
                   <FormField label="État du support">
                     <SelectInput
                       value={form.etatSupport ?? "Bon"}
                       onChange={(v) => setForm((f) => ({ ...f, etatSupport: v }))}
-                      options={filtres?.etatsSupport ?? ["Bon", "Défraichi", "Détérioré"]}
+                      options={etatOptions.length > 0 ? etatOptions : [
+                        { value: "Bon", label: "Bon" },
+                        { value: "Défraichi", label: "Défraichi" },
+                        { value: "Détérioré", label: "Détérioré" }
+                      ]}
+                      isLoading={isLoadingSelects}
                     />
                   </FormField>
-                  <FormField label="Type de site *" required>
+                  <FormField label="Type de site" required error={validationErrors.typeSite}>
                     <SelectInput
                       value={form.typeSite ?? "Permanent"}
                       onChange={(v) => setForm((f) => ({ ...f, typeSite: v }))}
-                      options={["Permanent", "Temporaire", "Mobile"]}
+                      options={[
+                        { value: "Permanent", label: "Permanent" },
+                        { value: "Temporaire", label: "Temporaire" },
+                        { value: "Mobile", label: "Mobile" }
+                      ]}
                       placeholder="— Choisir —"
                       required
+                      error={validationErrors.typeSite}
                     />
-                    {validationErrors.typeSite && (
-                      <p className="mt-1 text-xs text-red-500">{validationErrors.typeSite}</p>
-                    )}
                   </FormField>
                   <FormField label="Visibilité">
                     <SelectInput
                       value={form.visibilite ?? "Bonne"}
                       onChange={(v) => setForm((f) => ({ ...f, visibilite: v }))}
-                      options={filtres?.visibilites ?? ["Excellente", "Bonne", "Moyenne", "Faible"]}
+                      options={visibiliteOptions.length > 0 ? visibiliteOptions : [
+                        { value: "Excellente", label: "Excellente" },
+                        { value: "Bonne", label: "Bonne" },
+                        { value: "Moyenne", label: "Moyenne" },
+                        { value: "Faible", label: "Faible" }
+                      ]}
+                      isLoading={isLoadingSelects}
                     />
                   </FormField>
-                  <FormField label="Surface ODP *" required>
-                    <TextInput
-                      type="number"
-                      value={form.surfaceODP ?? 0}
-                      onChange={(v) =>
-                        setForm((f) => ({ ...f, surfaceODP: v ? parseFloat(v) : 0 }))
-                      }
-                      required
+                  <FormField label="Surface ODP" required error={validationErrors.surfaceODP}>
+                    <TextInput 
+                      type="number" 
+                      value={form.surfaceODP ?? 0} 
+                      onChange={(v) => setForm((f) => ({ ...f, surfaceODP: v ? parseFloat(v) : 0 }))} 
+                      required 
+                      error={validationErrors.surfaceODP}
                     />
-                    {validationErrors.surfaceODP && (
-                      <p className="mt-1 text-xs text-red-500">{validationErrors.surfaceODP}</p>
-                    )}
                   </FormField>
                 </div>
               </div>
@@ -1488,16 +1564,12 @@ export default function SupportsPublicitairesPage() {
                   <ImageUploadField
                     label="Photo principale"
                     currentUrl={imageUrl(editingSupport?.imageSupport ?? null)}
-                    onFileSelect={(file) =>
-                      setForm((f) => ({ ...f, imageSupportFile: file }))
-                    }
+                    onFileSelect={(file) => setForm((f) => ({ ...f, imageSupportFile: file }))}
                   />
                   <ImageUploadField
                     label="Photo secondaire"
                     currentUrl={imageUrl(editingSupport?.imageSupportSecondaire ?? null)}
-                    onFileSelect={(file) =>
-                      setForm((f) => ({ ...f, imageSupportSecondaireFile: file }))
-                    }
+                    onFileSelect={(file) => setForm((f) => ({ ...f, imageSupportSecondaireFile: file }))}
                   />
                 </div>
               </div>
@@ -1506,79 +1578,61 @@ export default function SupportsPublicitairesPage() {
               <div>
                 <SectionTitle>Responsables</SectionTitle>
                 <div className="grid grid-cols-2 gap-6">
-                  {/* Responsable terrain */}
                   <div>
                     <h4 className="mb-3 text-[13px] font-semibold text-slate-700">Responsable terrain</h4>
                     <div className="grid grid-cols-1 gap-4">
-                      <FormField label="Nom *" required>
-                        <TextInput
-                          value={form.responsableNom ?? ""}
-                          onChange={(v) => setForm((f) => ({ ...f, responsableNom: v }))}
-                          required
+                      <FormField label="Nom" required error={validationErrors.responsableNom}>
+                        <TextInput 
+                          value={form.responsableNom ?? ""} 
+                          onChange={(v) => setForm((f) => ({ ...f, responsableNom: v }))} 
+                          required 
+                          error={validationErrors.responsableNom}
                         />
-                        {validationErrors.responsableNom && (
-                          <p className="mt-1 text-xs text-red-500">{validationErrors.responsableNom}</p>
-                        )}
                       </FormField>
-                      <FormField label="Prénom *" required>
-                        <TextInput
-                          value={form.responsablePrenom ?? ""}
-                          onChange={(v) => setForm((f) => ({ ...f, responsablePrenom: v }))}
-                          required
+                      <FormField label="Prénom" required error={validationErrors.responsablePrenom}>
+                        <TextInput 
+                          value={form.responsablePrenom ?? ""} 
+                          onChange={(v) => setForm((f) => ({ ...f, responsablePrenom: v }))} 
+                          required 
+                          error={validationErrors.responsablePrenom}
                         />
-                        {validationErrors.responsablePrenom && (
-                          <p className="mt-1 text-xs text-red-500">{validationErrors.responsablePrenom}</p>
-                        )}
                       </FormField>
-                      <FormField label="Contact *" required>
-                        <TextInput
-                          value={form.responsableContact ?? ""}
-                          onChange={(v) => setForm((f) => ({ ...f, responsableContact: v }))}
-                          required
+                      <FormField label="Contact" required error={validationErrors.responsableContact}>
+                        <TextInput 
+                          value={form.responsableContact ?? ""} 
+                          onChange={(v) => setForm((f) => ({ ...f, responsableContact: v }))} 
+                          required 
+                          error={validationErrors.responsableContact}
                         />
-                        {validationErrors.responsableContact && (
-                          <p className="mt-1 text-xs text-red-500">{validationErrors.responsableContact}</p>
-                        )}
                       </FormField>
                     </div>
                   </div>
-
-                  {/* Signataire */}
                   <div>
                     <h4 className="mb-3 text-[13px] font-semibold text-slate-700">Signataire</h4>
                     <div className="grid grid-cols-1 gap-4">
-                      <FormField label="Nom *" required>
-                        <TextInput
-                          value={form.signataireNom ?? ""}
-                          onChange={(v) => setForm((f) => ({ ...f, signataireNom: v }))}
-                          required
-                          data-error={!!validationErrors.signataireNom}
+                      <FormField label="Nom" required error={validationErrors.signataireNom}>
+                        <TextInput 
+                          value={form.signataireNom ?? ""} 
+                          onChange={(v) => setForm((f) => ({ ...f, signataireNom: v }))} 
+                          required 
+                          error={validationErrors.signataireNom}
                         />
-                        {validationErrors.signataireNom && (
-                          <p className="mt-1 text-xs text-red-500">{validationErrors.signataireNom}</p>
-                        )}
                       </FormField>
-                      <FormField label="Prénom *" required>
-                        <TextInput
-                          value={form.signatairePrenom ?? ""}
-                          onChange={(v) => setForm((f) => ({ ...f, signatairePrenom: v }))}
-                          required
-                          data-error={!!validationErrors.signatairePrenom}
+                      <FormField label="Prénom" required error={validationErrors.signatairePrenom}>
+                        <TextInput 
+                          value={form.signatairePrenom ?? ""} 
+                          onChange={(v) => setForm((f) => ({ ...f, signatairePrenom: v }))} 
+                          required 
+                          error={validationErrors.signatairePrenom}
                         />
-                        {validationErrors.signatairePrenom && (
-                          <p className="mt-1 text-xs text-red-500">{validationErrors.signatairePrenom}</p>
-                        )}
                       </FormField>
-                      <FormField label="Contact *" required>
-                        <TextInput
-                          value={form.signataireContact ?? ""}
-                          onChange={(v) => setForm((f) => ({ ...f, signataireContact: v }))}
-                          required
-                          data-error={!!validationErrors.signataireContact}
+                      <FormField label="Contact" required error={validationErrors.signataireContact}>
+                        <TextInput 
+                          value={form.signataireContact ?? ""} 
+                          onChange={(v) => setForm((f) => ({ ...f, signataireContact: v }))} 
+                          required 
+                          error={validationErrors.signataireContact}
                         />
-                        {validationErrors.signataireContact && (
-                          <p className="mt-1 text-xs text-red-500">{validationErrors.signataireContact}</p>
-                        )}
                       </FormField>
                     </div>
                   </div>
@@ -1590,68 +1644,22 @@ export default function SupportsPublicitairesPage() {
                 <SectionTitle>Fiscalité</SectionTitle>
                 <div className="grid grid-cols-3 gap-4">
                   <FormField label="Durée (mois)">
-                    <TextInput
-                      type="number"
-                      value={form.duree ?? null}
-                      onChange={(v) =>
-                        setForm((f) => ({ ...f, duree: v ? parseFloat(v) : null }))
-                      }
-                    />
+                    <TextInput type="number" value={form.duree ?? null} onChange={(v) => setForm((f) => ({ ...f, duree: v ? parseFloat(v) : null }))} />
                   </FormField>
                   <FormField label="TSP (FCFA)">
-                    <TextInput
-                      type="number"
-                      value={form.tsp ?? null}
-                      onChange={(v) =>
-                        setForm((f) => ({ ...f, tsp: v ? parseFloat(v) : null }))
-                      }
-                    />
+                    <TextInput type="number" value={form.tsp ?? null} onChange={(v) => setForm((f) => ({ ...f, tsp: v ? parseFloat(v) : null }))} />
                   </FormField>
                   <FormField label="Valeur ODP (FCFA)">
-                    <TextInput
-                      type="number"
-                      value={form.odpValue ?? null}
-                      onChange={(v) =>
-                        setForm((f) => ({ ...f, odpValue: v ? parseFloat(v) : null }))
-                      }
-                    />
+                    <TextInput type="number" value={form.odpValue ?? null} onChange={(v) => setForm((f) => ({ ...f, odpValue: v ? parseFloat(v) : null }))} />
                   </FormField>
                   <div className="col-span-3 flex flex-wrap gap-4 pt-1">
-                    <CheckboxInput
-                      label="ODP"
-                      checked={form.odp ?? false}
-                      onChange={(v) => setForm((f) => ({ ...f, odp: v }))}
-                    />
-                    <CheckboxInput
-                      label="AP"
-                      checked={form.ap ?? false}
-                      onChange={(v) => setForm((f) => ({ ...f, ap: v }))}
-                    />
-                    <CheckboxInput
-                      label="AE"
-                      checked={form.ae ?? false}
-                      onChange={(v) => setForm((f) => ({ ...f, ae: v }))}
-                    />
-                    <CheckboxInput
-                      label="Ancienneté"
-                      checked={form.anciennete ?? false}
-                      onChange={(v) => setForm((f) => ({ ...f, anciennete: v }))}
-                    />
-                    <CheckboxInput
-                      label="Taux commune"
-                      checked={form.tauxCommune ?? false}
-                      onChange={(v) => setForm((f) => ({ ...f, tauxCommune: v }))}
-                    />
-                    <CheckboxInput
-                      label="Taux région"
-                      checked={form.tauxRegion ?? false}
-                      onChange={(v) => setForm((f) => ({ ...f, tauxRegion: v }))}
-                    />
-                    <CheckboxInput
-                      label="Taux district"
-                      checked={form.tauxDistrict ?? false}
-                      onChange={(v) => setForm((f) => ({ ...f, tauxDistrict: v }))}
-                    />
+                    <CheckboxInput label="ODP" checked={form.odp ?? false} onChange={(v) => setForm((f) => ({ ...f, odp: v }))} />
+                    <CheckboxInput label="AP" checked={form.ap ?? false} onChange={(v) => setForm((f) => ({ ...f, ap: v }))} />
+                    <CheckboxInput label="AE" checked={form.ae ?? false} onChange={(v) => setForm((f) => ({ ...f, ae: v }))} />
+                    <CheckboxInput label="Ancienneté" checked={form.anciennete ?? false} onChange={(v) => setForm((f) => ({ ...f, anciennete: v }))} />
+                    <CheckboxInput label="Taux commune" checked={form.tauxCommune ?? false} onChange={(v) => setForm((f) => ({ ...f, tauxCommune: v }))} />
+                    <CheckboxInput label="Taux région" checked={form.tauxRegion ?? false} onChange={(v) => setForm((f) => ({ ...f, tauxRegion: v }))} />
+                    <CheckboxInput label="Taux district" checked={form.tauxDistrict ?? false} onChange={(v) => setForm((f) => ({ ...f, tauxDistrict: v }))} />
                   </div>
                 </div>
               </div>
@@ -1663,9 +1671,7 @@ export default function SupportsPublicitairesPage() {
                   <FormField label="Description">
                     <textarea
                       value={form.description ?? ""}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, description: e.target.value }))
-                      }
+                      onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                       rows={2}
                       className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-800 outline-none focus:border-[#0B3C53]"
                     />
@@ -1673,9 +1679,7 @@ export default function SupportsPublicitairesPage() {
                   <FormField label="Observation">
                     <textarea
                       value={form.observation ?? ""}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, observation: e.target.value }))
-                      }
+                      onChange={(e) => setForm((f) => ({ ...f, observation: e.target.value }))}
                       rows={2}
                       className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-800 outline-none focus:border-[#0B3C53]"
                     />
@@ -1684,7 +1688,6 @@ export default function SupportsPublicitairesPage() {
               </div>
             </form>
 
-            {/* Footer modal */}
             <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
               <button
                 onClick={() => setModalOpen(false)}
@@ -1705,6 +1708,16 @@ export default function SupportsPublicitairesPage() {
           </div>
         </div>
       )}
+
+      {/* ===================== MODAL IMPORT EN MASSE ===================== */}
+      <BulkImportModal
+        open={importModalOpen}
+        onClose={() => setImportModalOpen(false)}
+        onImported={() => {
+          setImportModalOpen(false);
+          loadSupports();
+        }}
+      />
 
       {/* ===================== LIGHTBOX IMAGE ===================== */}
       {lightboxUrl && (
@@ -1734,15 +1747,12 @@ export default function SupportsPublicitairesPage() {
             <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-50">
               <Trash2 className="h-5 w-5 text-red-500" />
             </div>
-            <h2 className="mb-1.5 text-[15px] font-bold text-slate-900">
-              Supprimer ce support ?
-            </h2>
+            <h2 className="mb-1.5 text-[15px] font-bold text-slate-900">Supprimer ce support ?</h2>
             <p className="mb-5 text-[13px] text-slate-500">
               <span className="font-medium text-slate-700">
                 {deleteTarget.marque} — {deleteTarget.nomSite}
               </span>{" "}
-              sera retiré de la liste active. Cette action peut être annulée par un
-              administrateur.
+              sera retiré de la liste active. Cette action peut être annulée par un administrateur.
             </p>
             <div className="flex justify-end gap-3">
               <button
