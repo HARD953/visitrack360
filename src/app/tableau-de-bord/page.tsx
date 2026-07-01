@@ -427,9 +427,9 @@ export default function TableauDeBordPage() {
       const payload = {
         commune: form.commune,
         entreprise: form.entreprise,
-        montant_initial: parseFloat(form.montantInitial) || 0,
-        montant_recalcule: parseFloat(form.montantRecalcule) || 0,
-        montant_negocie: form.montantNegocie ? parseFloat(form.montantNegocie) : null,
+        montantInitial: parseFloat(form.montantInitial) || 0,
+        montantRecalcule: parseFloat(form.montantRecalcule) || 0,
+        montantNegocie: form.montantNegocie ? parseFloat(form.montantNegocie) : null,
         type_prochaine_action: form.typeProchaineAction || null,
         date_prochaine_action: form.dateProchaineAction || null,
       };
