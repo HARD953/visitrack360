@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Eye, EyeOff, AlertCircle, Loader2,
-  Mail, Lock, LogIn, ShieldCheck, EyeOff as EyeOffIcon, KeyRound,
+  Mail, Lock, ArrowRight, ShieldCheck, KeyRound, Fingerprint,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -51,69 +51,72 @@ export default function LoginPage() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F5F7FA]">
-        <Loader2 className="h-8 w-8 animate-spin text-[#0B3C53]" />
+      <div className="flex min-h-screen items-center justify-center bg-[#F6F8FA]">
+        <Loader2 className="h-7 w-7 animate-spin text-[#0B3C53]" strokeWidth={2} />
       </div>
     );
   }
 
   const fieldBase =
-    "w-full rounded-xl border bg-[#FAFBFC] px-3.5 py-2.5 pl-10 text-[14px] text-[#0B3C53] outline-none transition-all placeholder:text-slate-300 focus:bg-white";
-  const fieldFocused = "border-[#0B3C53] ring-[3px] ring-[#0B3C53]/8";
+    "w-full rounded-lg border bg-white px-3.5 py-3 pl-10 text-[14.5px] text-[#0B2A3B] outline-none transition-all duration-150 placeholder:text-slate-300";
+  const fieldFocused = "border-[#0B3C53] ring-4 ring-[#0B3C53]/[0.07]";
   const fieldNormal = "border-slate-200 hover:border-slate-300";
 
   return (
-    <div className="flex min-h-screen bg-[#F5F7FA]">
+    <div className="flex min-h-screen bg-white">
 
-      {/* ── Panneau gauche ── */}
-      <div className="hidden lg:flex lg:w-[45%] flex-col justify-between bg-[#0B3C53] p-12 relative overflow-hidden">
+      {/* ── Panneau gauche : identité de marque ── */}
+      <div className="hidden lg:flex lg:w-[46%] flex-col justify-between bg-[#0A2F42] p-12 relative overflow-hidden">
 
-        {/* Orbes décoratifs */}
-        <div className="absolute -top-20 -right-20 w-80 h-80 rounded-full bg-[#4FC3F7] opacity-[0.07]" />
-        <div className="absolute -bottom-16 -left-16 w-52 h-52 rounded-full bg-[#26C6DA] opacity-[0.07]" />
-        <div className="absolute bottom-48 right-6 w-32 h-32 rounded-full bg-[#80DEEA] opacity-[0.06]" />
+        {/* Grille technique en fond, évoque le maillage cartographique des supports */}
+        <svg
+          className="absolute inset-0 h-full w-full opacity-[0.05]"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="white" strokeWidth="1" />
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#grid)" />
+        </svg>
 
-        {/* Anneaux pulsants */}
-        <div className="absolute bottom-20 right-10 w-44 h-44 rounded-full border border-[#4FC3F7]/15 animate-pulse" />
-        <div className="absolute bottom-14 right-4 w-56 h-56 rounded-full border border-[#4FC3F7]/8 animate-pulse [animation-delay:0.8s]" />
+        {/* Halo de couleur */}
+        <div className="absolute -top-24 -right-24 w-96 h-96 rounded-full bg-[#4FC3F7] opacity-[0.08] blur-3xl" />
+        <div className="absolute bottom-0 -left-20 w-72 h-72 rounded-full bg-[#26C6DA] opacity-[0.06] blur-3xl" />
 
         {/* Logo */}
         <div className="relative z-10 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 border border-white/20 backdrop-blur-sm">
-            <span className="text-lg font-bold text-white">V</span>
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/[0.08] border border-white/[0.14]">
+            <span className="text-[17px] font-semibold text-white">V</span>
           </div>
           <div>
-            <p className="text-[15px] font-bold text-white tracking-tight">VisiTrack360</p>
-            <p className="text-[11px] text-white/40 mt-0.5">Audit de Visibilité</p>
+            <p className="text-[14.5px] font-semibold text-white tracking-tight leading-none">
+              VisiTrack360
+            </p>
+            <p className="text-[11px] text-white/40 mt-1 tracking-wide">Audit de Visibilité</p>
           </div>
         </div>
 
         {/* Corps */}
         <div className="relative z-10">
-          {/* Badge animé */}
-          <div className="inline-flex items-center gap-2 bg-[#4FC3F7]/12 border border-[#4FC3F7]/25 rounded-full px-3 py-1.5 mb-6">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#4FC3F7] animate-pulse" />
-            <span className="text-[11px] text-[#4FC3F7] font-medium tracking-wide">
+          <div className="inline-flex items-center gap-2 bg-white/[0.06] border border-white/[0.12] rounded-full px-3 py-1.5 mb-7">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#4FC3F7]" />
+            <span className="text-[11px] text-white/70 font-medium tracking-wide">
               Plateforme active · v2.5
             </span>
           </div>
 
-          <h1 className="text-[32px] font-bold leading-[1.2] text-white tracking-tight mb-4">
-            Pilotage fiscal
-            <br />
-            et opérationnel
-            <br />
-            <span className="text-white/35">des supports</span>
-            <br />
-            de visibilité.
+          <h1 className="text-[34px] font-semibold leading-[1.22] text-white tracking-tight mb-4 max-w-[360px]">
+            Pilotage fiscal et opérationnel des supports de visibilité.
           </h1>
-          <p className="text-[13.5px] leading-relaxed text-white/50 max-w-[280px]">
-            Inventoriez, calculez, comparez, négociez et décidez
-            depuis une seule plateforme unifiée.
+          <p className="text-[14px] leading-relaxed text-white/45 max-w-[300px]">
+            Inventoriez, calculez, comparez, négociez et décidez depuis une
+            seule plateforme unifiée.
           </p>
         </div>
 
-        {/* Stats */}
+        {/* Statistiques */}
         <div className="relative z-10 grid grid-cols-3 gap-3">
           {[
             { label: "Supports recensés", value: "1 375+" },
@@ -122,62 +125,73 @@ export default function LoginPage() {
           ].map((stat) => (
             <div
               key={stat.label}
-              className="rounded-xl bg-white/5 border border-white/8 p-4 hover:bg-white/9 transition-colors"
+              className="rounded-xl bg-white/[0.04] border border-white/[0.08] p-4"
             >
-              <p className="text-[18px] font-bold text-white tracking-tight">{stat.value}</p>
-              <p className="mt-1 text-[10px] text-white/40 leading-snug">{stat.label}</p>
+              <p className="text-[19px] font-semibold text-white tracking-tight tabular-nums">
+                {stat.value}
+              </p>
+              <p className="mt-1 text-[10.5px] text-white/40 leading-snug">
+                {stat.label}
+              </p>
             </div>
           ))}
         </div>
       </div>
 
-      {/* ── Panneau droit ── */}
+      {/* ── Panneau droit : formulaire ── */}
       <div className="flex flex-1 items-center justify-center px-6 py-12 bg-white">
-        <div className="w-full max-w-[360px]">
+        <div className="w-full max-w-[380px]">
 
           {/* Logo mobile */}
-          <div className="mb-8 flex items-center gap-2.5 lg:hidden">
+          <div className="mb-9 flex items-center gap-2.5 lg:hidden">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#0B3C53]">
-              <span className="text-base font-bold text-white">V</span>
+              <span className="text-[15px] font-semibold text-white">V</span>
             </div>
             <div>
-              <p className="text-[15px] font-bold text-slate-900">VisiTrack360</p>
-              <p className="text-[11px] text-slate-400">Audit de Visibilité</p>
+              <p className="text-[14.5px] font-semibold text-slate-900 leading-none">VisiTrack360</p>
+              <p className="text-[11px] text-slate-400 mt-1">Audit de Visibilité</p>
             </div>
           </div>
 
-          {/* En-tête formulaire */}
+          {/* En-tête */}
           <div className="mb-8">
-            <h2 className="text-[22px] font-bold text-[#0B3C53] tracking-tight">
-              Bon retour 👋
+            <h2 className="text-[23px] font-semibold text-[#0B2A3B] tracking-tight">
+              Bon retour
             </h2>
-            <p className="mt-1.5 text-[13.5px] text-slate-400">
+            <p className="mt-1.5 text-[14px] text-slate-400">
               Connectez-vous à votre espace de travail.
             </p>
           </div>
 
-          {/* Erreur */}
+          {/* Message d'erreur */}
           {error && (
-            <div className="mb-5 flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
-              <p className="text-[13px] font-medium text-red-600">{error}</p>
+            <div
+              role="alert"
+              className="mb-5 flex items-start gap-3 rounded-lg border border-red-100 bg-red-50 px-4 py-3"
+            >
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" strokeWidth={2} />
+              <p className="text-[13px] font-medium text-red-700">{error}</p>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
 
             {/* Email */}
             <div>
               <label
                 htmlFor="email"
-                className="mb-1.5 block text-[11px] font-semibold text-slate-500 uppercase tracking-wider"
+                className="mb-1.5 block text-[12px] font-medium text-slate-500"
               >
                 Adresse email
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300" />
+                <Mail
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300"
+                  strokeWidth={2}
+                />
                 <input
                   id="email"
+                  name="email"
                   type="email"
                   autoComplete="email"
                   autoFocus
@@ -193,16 +207,28 @@ export default function LoginPage() {
 
             {/* Mot de passe */}
             <div>
-              <label
-                htmlFor="password"
-                className="mb-1.5 block text-[11px] font-semibold text-slate-500 uppercase tracking-wider"
-              >
-                Mot de passe
-              </label>
+              <div className="mb-1.5 flex items-center justify-between">
+                <label
+                  htmlFor="password"
+                  className="block text-[12px] font-medium text-slate-500"
+                >
+                  Mot de passe
+                </label>
+                <a
+                  href="/mot-de-passe-oublie"
+                  className="text-[12px] font-medium text-[#0B3C53]/60 hover:text-[#0B3C53] transition-colors"
+                >
+                  Mot de passe oublié ?
+                </a>
+              </div>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300" />
+                <Lock
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300"
+                  strokeWidth={2}
+                />
                 <input
                   id="password"
+                  name="password"
                   type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
                   value={password}
@@ -216,76 +242,71 @@ export default function LoginPage() {
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-colors"
-                  aria-label={showPassword ? "Masquer" : "Afficher"}
+                  aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-
-              {/* Mot de passe oublié */}
-              <div className="flex justify-end mt-2">
-                <a>
-                  href="#"
-                  className="text-[12px] text-[#0B3C53]/60 hover:text-[#0B3C53] font-medium transition-colors"
-                
-                  Mot de passe oublie ?
-                </a>
-              </div>
             </div>
 
-            {/* Bouton submit */}
+            {/* Bouton de connexion */}
             <button
               type="submit"
               disabled={isSubmitting}
-              className="mt-1 flex w-full items-center justify-center gap-2 rounded-xl bg-[#0B3C53] px-4 py-3 text-[14px] font-semibold text-white transition-all hover:bg-[#0a3348] active:scale-[0.99] disabled:opacity-60 shadow-sm shadow-[#0B3C53]/20"
+              className="group mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-[#0B3C53] px-4 py-3 text-[14.5px] font-medium text-white transition-all hover:bg-[#0a3348] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 shadow-sm shadow-[#0B3C53]/15"
             >
               {isSubmitting ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
                   Connexion en cours…
                 </>
               ) : (
                 <>
-                  <LogIn className="h-4 w-4" />
                   Se connecter
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" strokeWidth={2} />
                 </>
               )}
             </button>
           </form>
 
-          {/* Séparateur SSO */}
-          <div className="flex items-center gap-3 my-5">
+          {/* Séparateur */}
+          <div className="flex items-center gap-3 my-6">
             <div className="flex-1 h-px bg-slate-100" />
-            <span className="text-[11px] text-slate-300 font-medium">ou continuer avec</span>
+            <span className="text-[11px] text-slate-300 font-medium uppercase tracking-wider">
+              ou
+            </span>
             <div className="flex-1 h-px bg-slate-100" />
           </div>
 
-          {/* Bouton SSO */}
+          {/* SSO */}
           <button
             type="button"
-            className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[13px] font-medium text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition-all"
+            className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-slate-200 bg-white px-4 py-3 text-[13.5px] font-medium text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition-all"
           >
-            <div className="flex h-5 w-5 items-center justify-center rounded bg-slate-100 text-[10px] font-bold text-slate-500">
-              G
-            </div>
-            Connexion SSO / Microsoft
+            <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.47a5.53 5.53 0 0 1-2.4 3.63v3.02h3.88c2.27-2.09 3.57-5.17 3.57-8.84Z" />
+              <path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.95-2.9l-3.88-3.02c-1.08.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.27v3.11A11.998 11.998 0 0 0 12 24Z" />
+              <path fill="#FBBC05" d="M5.27 14.27a7.2 7.2 0 0 1 0-4.54V6.62H1.27a12 12 0 0 0 0 10.76l4-3.11Z" />
+              <path fill="#EA4335" d="M12 4.77c1.76 0 3.34.6 4.58 1.79l3.44-3.44C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.69 1.27 6.62l4 3.11c.95-2.85 3.6-4.96 6.73-4.96Z" />
+            </svg>
+            Connexion via Microsoft / Google
           </button>
 
           {/* Bande de confiance */}
-          <div className="flex items-center justify-center gap-5 mt-6 pt-5 border-t border-slate-100">
+          <div className="flex items-center justify-center gap-5 mt-7 pt-6 border-t border-slate-100">
             {[
               { icon: ShieldCheck, label: "Connexion sécurisée" },
               { icon: KeyRound, label: "Données chiffrées" },
-              { icon: EyeOffIcon, label: "Privé" },
+              { icon: Fingerprint, label: "Accès contrôlé" },
             ].map(({ icon: Icon, label }) => (
               <div key={label} className="flex items-center gap-1.5">
-                <Icon className="h-3.5 w-3.5 text-[#0B3C53]/40" />
+                <Icon className="h-3.5 w-3.5 text-slate-300" strokeWidth={2} />
                 <span className="text-[10.5px] text-slate-400 font-medium">{label}</span>
               </div>
             ))}
           </div>
 
-          <p className="mt-6 text-center text-[11px] text-slate-300">
+          <p className="mt-7 text-center text-[11px] text-slate-300">
             VisiTrack360 © 2025 — LanfiaTech / LMC
           </p>
         </div>

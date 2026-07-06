@@ -47,8 +47,6 @@ import {
   Pie,
   Cell,
   Legend,
-  LineChart,
-  Line,
   CartesianGrid,
 } from "recharts";
 import { fetchDashboardExecutif } from "@/lib/api/dashboard";
@@ -57,6 +55,17 @@ import { useAuth } from "@/contexts/AuthContext";
 import type { ExecutiveDashboardData, AlertSeverity, ActivityItem } from "@/types/dashboard";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://backend360.onrender.com";
+
+// ---------------------------------------------------------------------------
+// Palette signature — TSP toujours en navy, ODP toujours en or.
+// La couleur n'est jamais décorative : elle encode systématiquement le
+// même sens partout dans le dashboard (voir frontend-design skill).
+// ---------------------------------------------------------------------------
+
+const NAVY = "#0B3C53";
+const GOLD = "#C99B3F";
+const NAVY_TINT = "#EAF1F4";
+const GOLD_TINT = "#FBF3DF";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -85,6 +94,8 @@ interface SupportItem {
   odp: boolean;
   surface: number | null;
 }
+
+type TabKey = "repartition" | "fiscal" | "activite";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -148,13 +159,15 @@ const DONUT_COLORS: Record<string, string> = {
   Détérioré: "#EF4444",
 };
 
-const KPI_STYLES: Record<string, { icon: ElementType; badge: string }> = {
-  "supports-recenses": { icon: Boxes, badge: "bg-violet-500" },
-  "fiscalite-estimee": { icon: Wallet, badge: "bg-cyan-500" },
-  "montant-reclame": { icon: HandCoins, badge: "bg-emerald-500" },
-  "gap-potentiel": { icon: AlertTriangle, badge: "bg-orange-500" },
-  "communes-couvertes": { icon: MapPinned, badge: "bg-blue-500" },
-  "economies-suivies": { icon: Coins, badge: "bg-pink-500" },
+// Badges KPI harmonisés : navy par défaut, ambre réservé au seul indicateur
+// qui signale un risque (le lecteur apprend que "ambre = attention requise").
+const KPI_STYLES: Record<string, { icon: ElementType; tone: "navy" | "warning" }> = {
+  "supports-recenses": { icon: Boxes, tone: "navy" },
+  "fiscalite-estimee": { icon: Wallet, tone: "navy" },
+  "montant-reclame": { icon: HandCoins, tone: "navy" },
+  "gap-potentiel": { icon: AlertTriangle, tone: "warning" },
+  "communes-couvertes": { icon: MapPinned, tone: "navy" },
+  "economies-suivies": { icon: Coins, tone: "navy" },
 };
 
 const PERIODES = [
@@ -162,6 +175,12 @@ const PERIODES = [
   { label: "30 jours", days: 30 },
   { label: "3 mois", days: 90 },
   { label: "1 an", days: 365 },
+];
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: "repartition", label: "Répartition TSP & ODP" },
+  { key: "fiscal", label: "Analyse fiscale" },
+  { key: "activite", label: "Alertes & activité" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -266,6 +285,9 @@ export default function DashboardExecutifPage() {
   const [filterCommune, setFilterCommune] = useState("");
   const [filterTypeSupport, setFilterTypeSupport] = useState("");
   const [filterEtatSupport, setFilterEtatSupport] = useState("");
+
+  // Onglet actif — remplace l'empilement vertical des 6 sections d'origine
+  const [activeTab, setActiveTab] = useState<TabKey>("repartition");
 
   const hasActiveFilters = !!(filterCommune || filterTypeSupport || filterEtatSupport);
   const activeFilterCount = [filterCommune, filterTypeSupport, filterEtatSupport].filter(Boolean).length;
@@ -476,7 +498,7 @@ export default function DashboardExecutifPage() {
         <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
           <div>
             <h2 className="text-[15px] font-bold text-slate-900">Dashboard Exécutif</h2>
-            <p className="text-[12px] text-slate-400">Vue Direction</p>
+            <p className="text-[12px] text-slate-400">Pilotage fiscal et opérationnel</p>
           </div>
           <div className="flex items-center gap-4">
             <button className="relative rounded-full p-2 text-slate-500 hover:bg-slate-100">
@@ -495,14 +517,11 @@ export default function DashboardExecutifPage() {
         </header>
 
         <main className="flex-1 px-6 py-6">
-          {/* ── Titre + contrôles ── */}
-          <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="border-l-4 border-[#0B3C53] pl-3">
-              <h1 className="text-2xl font-bold text-slate-900">Dashboard Exécutif</h1>
-              <p className="mt-1 text-[13px] text-slate-500">
-                Pilotage fiscal et opérationnel des supports de visibilité
-              </p>
-            </div>
+          {/* ── Barre d'outils : période + filtres (pas de titre redondant, déjà dans le header) ── */}
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-[13px] text-slate-500">
+              {periodPreset ? `Sur les ${periodPreset} derniers jours` : `Du ${periodFrom} au ${periodTo}`}
+            </p>
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={loadDashboard}
                 className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium text-slate-500 hover:bg-slate-50" title="Actualiser">
@@ -527,7 +546,7 @@ export default function DashboardExecutifPage() {
 
           {/* ── Filtres enrichis ── */}
           {showFilters && (
-            <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="mb-4 flex items-center justify-between">
                 <p className="text-[13px] font-bold text-slate-700">Filtres avancés</p>
                 <button onClick={() => setShowFilters(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-100">
@@ -625,25 +644,26 @@ export default function DashboardExecutifPage() {
           {data && !isLoading && (
             <>
               {/* ══════════════════════════════════════════════
-                  SECTION 1 — KPIs fiscaux (depuis API dashboard)
+                  KPIs — toujours visibles, c'est le point d'entrée unique
+                  (fusion visuelle des anciennes sections "Indicateurs fiscaux"
+                  et "Données chiffrées", qui se recoupaient)
               ══════════════════════════════════════════════ */}
-              <div className="mb-2">
-                <h2 className="mb-3 text-[12px] font-bold uppercase tracking-widest text-slate-400">
-                  Indicateurs fiscaux
-                </h2>
-              </div>
-              <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
+              <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
                 {data.kpis.map((kpi) => {
                   const style = KPI_STYLES[kpi.id];
                   const Icon = style?.icon ?? Boxes;
+                  const isWarning = style?.tone === "warning";
                   return (
-                    <div key={kpi.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div key={kpi.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                       <div className="mb-3 flex items-start justify-between">
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 leading-tight">
                           {kpi.label}
                         </p>
-                        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${style?.badge ?? "bg-slate-400"}`}>
-                          <Icon className="h-4 w-4 text-white" strokeWidth={2} />
+                        <div
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+                          style={{ backgroundColor: isWarning ? "#FEF3E2" : NAVY_TINT }}
+                        >
+                          <Icon className="h-4 w-4" style={{ color: isWarning ? "#D97706" : NAVY }} strokeWidth={2} />
                         </div>
                       </div>
                       <p className="text-xl font-bold tabular-nums text-slate-900">
@@ -662,343 +682,288 @@ export default function DashboardExecutifPage() {
                 })}
               </div>
 
-              {/* ══════════════════════════════════════════════
-                  SECTION 2 — Données chiffrées TSP + ODP (depuis supports bruts)
-              ══════════════════════════════════════════════ */}
-              <div className="mb-2">
-                <h2 className="mb-3 text-[12px] font-bold uppercase tracking-widest text-slate-400">
-                  Données chiffrées — Redevances supports
-                </h2>
-              </div>
-
-              {supportsLoading ? (
-                <div className="mb-6 flex h-24 items-center justify-center rounded-xl border border-slate-200 bg-white">
-                  <Loader2 className="h-6 w-6 animate-spin text-[#0B3C53]" />
-                </div>
-              ) : (
-                <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+              {/* Bandeau compact TSP / ODP — remplace les 4 cartes bordées d'origine
+                  par une seule carte à colonnes, moins de bordures, même info */}
+              {!supportsLoading && (
+                <div className="mb-6 grid grid-cols-2 divide-x divide-slate-100 rounded-2xl border border-slate-200 bg-white shadow-sm sm:grid-cols-4">
                   {[
-                    {
-                      label: "Nombre total",
-                      value: formatNumber(totauxGlobaux.totalSupports),
-                      sub: "supports recensés",
-                      icon: <Boxes className="h-5 w-5" />,
-                      bg: "bg-[#0B3C53]",
-                      textColor: "text-[#0B3C53]",
-                    },
-                    {
-                      label: "Coût total TSP",
-                      value: formatNumber(totauxGlobaux.totalTSP),
-                      sub: "F CFA",
-                      icon: <Wallet className="h-5 w-5" />,
-                      bg: "bg-cyan-500",
-                      textColor: "text-cyan-700",
-                    },
-                    {
-                      label: "Coût total ODP",
-                      value: formatNumber(totauxGlobaux.totalODP),
-                      sub: "F CFA",
-                      icon: <HandCoins className="h-5 w-5" />,
-                      bg: "bg-violet-500",
-                      textColor: "text-violet-700",
-                    },
-                    {
-                      label: "Coût total supports",
-                      value: formatNumber(totauxGlobaux.totalCout),
-                      sub: "F CFA",
-                      icon: <Coins className="h-5 w-5" />,
-                      bg: "bg-emerald-500",
-                      textColor: "text-emerald-700",
-                    },
+                    { label: "Supports recensés", value: formatNumber(totauxGlobaux.totalSupports), unit: "", color: "#0F172A" },
+                    { label: "Total TSP", value: formatNumber(totauxGlobaux.totalTSP), unit: "F CFA", color: NAVY },
+                    { label: "Total ODP", value: formatNumber(totauxGlobaux.totalODP), unit: "F CFA", color: GOLD },
+                    { label: "Coût total", value: formatNumber(totauxGlobaux.totalCout), unit: "F CFA", color: "#0F172A" },
                   ].map((item) => (
-                    <div key={item.label} className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
-                      <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${item.bg}`}>
-                        <span className="text-white">{item.icon}</span>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-[11px] font-medium text-slate-400 leading-tight">{item.label}</p>
-                        <p className={`mt-0.5 text-[20px] font-bold tabular-nums leading-tight ${item.textColor}`}>
-                          {item.value}
-                        </p>
-                        <p className="text-[11px] text-slate-400">{item.sub}</p>
-                      </div>
+                    <div key={item.label} className="px-5 py-4">
+                      <p className="text-[11px] font-medium text-slate-400">{item.label}</p>
+                      <p className="mt-1 text-[19px] font-bold tabular-nums" style={{ color: item.color }}>
+                        {item.value}
+                      </p>
+                      {item.unit && <p className="text-[10px] text-slate-400">{item.unit}</p>}
                     </div>
                   ))}
                 </div>
               )}
 
               {/* ══════════════════════════════════════════════
-                  SECTION 3 — TSP / ODP par état + par type (2 graphiques)
+                  Onglets — regroupent ce qui était 4 sections empilées
+                  en 3 vues consultées à la demande
               ══════════════════════════════════════════════ */}
-              <div className="mb-2">
-                <h2 className="mb-3 text-[12px] font-bold uppercase tracking-widest text-slate-400">
-                  Répartition TSP &amp; ODP
-                </h2>
+              <div className="mb-5 flex gap-1 border-b border-slate-200">
+                {TABS.map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key)}
+                    className={`relative px-4 py-2.5 text-[13px] font-semibold transition-colors ${
+                      activeTab === tab.key ? "text-[#0B3C53]" : "text-slate-400 hover:text-slate-600"
+                    }`}
+                  >
+                    {tab.label}
+                    {activeTab === tab.key && (
+                      <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-[#0B3C53]" />
+                    )}
+                  </button>
+                ))}
               </div>
 
-              <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
-                {/* État du support — 3 cartes mini */}
-                <div className="xl:col-span-1 space-y-3">
-                  <p className="text-[13px] font-semibold text-slate-600">Par état du support</p>
-                  {parEtat.map((e) => (
-                    <div key={e.etat} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                      <div className="mb-3 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: DONUT_COLORS[e.etat] ?? "#cbd5e1" }} />
-                          <span className="text-[13px] font-bold text-slate-800">{e.etat}</span>
+              {/* ── Onglet : Répartition TSP & ODP ── */}
+              {activeTab === "repartition" && (
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                  {/* Par état — une seule carte à 3 lignes au lieu de 3 cartes */}
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-1">
+                    <p className="mb-4 text-[13px] font-semibold text-slate-600">Par état du support</p>
+                    <div className="divide-y divide-slate-100">
+                      {parEtat.map((e) => (
+                        <div key={e.etat} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                          <div className="flex items-center gap-2">
+                            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: DONUT_COLORS[e.etat] ?? "#cbd5e1" }} />
+                            <div>
+                              <p className="text-[13px] font-semibold text-slate-800">{e.etat}</p>
+                              <p className="text-[11px] text-slate-400">{e.count} supports</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[13px] font-bold tabular-nums text-slate-800">{formatNumber(e.total)}</p>
+                            <p className="text-[10px] text-slate-400">
+                              <span style={{ color: NAVY }}>{formatNumber(e.tsp)}</span> TSP · <span style={{ color: GOLD }}>{formatNumber(e.odp)}</span> ODP
+                            </p>
+                          </div>
                         </div>
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
-                          {e.count} supports
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2 text-center">
-                        <div className="rounded-lg bg-cyan-50 px-2 py-2">
-                          <p className="text-[10px] font-medium text-cyan-600">TSP</p>
-                          <p className="text-[13px] font-bold text-cyan-700 tabular-nums">
-                            {formatNumber(e.tsp)}
-                          </p>
-                          <p className="text-[9px] text-cyan-500">F CFA</p>
-                        </div>
-                        <div className="rounded-lg bg-violet-50 px-2 py-2">
-                          <p className="text-[10px] font-medium text-violet-600">ODP</p>
-                          <p className="text-[13px] font-bold text-violet-700 tabular-nums">
-                            {formatNumber(e.odp)}
-                          </p>
-                          <p className="text-[9px] text-violet-500">F CFA</p>
-                        </div>
-                        <div className="rounded-lg bg-slate-50 px-2 py-2">
-                          <p className="text-[10px] font-medium text-slate-500">Total</p>
-                          <p className="text-[13px] font-bold text-[#0B3C53] tabular-nums">
-                            {formatNumber(e.total)}
-                          </p>
-                          <p className="text-[9px] text-slate-400">F CFA</p>
-                        </div>
-                      </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </div>
 
-                {/* TSP + ODP par type de support — bar chart */}
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-                  <p className="mb-4 text-[13px] font-semibold text-slate-600">
-                    TSP &amp; ODP par type de support (en milliers FCFA)
-                  </p>
-                  {parType.length === 0 ? (
-                    <div className="flex h-48 items-center justify-center text-slate-400 text-[13px]">
-                      Aucune donnée disponible.
-                    </div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height={260}>
-                      <BarChart data={parType} margin={{ top: 5, right: 10, left: 0, bottom: 40 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                        <XAxis
-                          dataKey="type"
-                          tick={{ fontSize: 10, fill: "#64748b" }}
-                          axisLine={false}
-                          tickLine={false}
-                          angle={-30}
-                          textAnchor="end"
-                          interval={0}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 10, fill: "#64748b" }}
-                          axisLine={false}
-                          tickLine={false}
-                          tickFormatter={(v) => `${v}k`}
-                        />
-                        <Tooltip formatter={(v) => [`${formatNumber((v as number) * 1000)} F CFA`]} />
-                        <Legend wrapperStyle={{ fontSize: 12 }} />
-                        <Bar dataKey="tsp" name="TSP" fill="#06B6D4" radius={[3, 3, 0, 0]} />
-                        <Bar dataKey="odp" name="ODP" fill="#8B5CF6" radius={[3, 3, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-              </div>
-
-              {/* ══════════════════════════════════════════════
-                  SECTION 4 — TSP + ODP par commune (bar chart horizontal)
-              ══════════════════════════════════════════════ */}
-              <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="mb-4 flex items-center justify-between">
-                  <p className="text-[13px] font-semibold text-slate-600">
-                    TSP &amp; ODP par commune — Top 8 (en milliers FCFA)
-                  </p>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">
-                    <BarChart3 className="inline h-3 w-3 mr-1" />
-                    Valeurs réelles des supports
-                  </span>
-                </div>
-                {parCommune.length === 0 ? (
-                  <p className="py-8 text-center text-[13px] text-slate-400">Aucune donnée disponible.</p>
-                ) : (
-                  <ResponsiveContainer width="100%" height={240}>
-                    <BarChart
-                      data={parCommune}
-                      layout="vertical"
-                      margin={{ top: 0, right: 20, left: 80, bottom: 0 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                      <XAxis
-                        type="number"
-                        tick={{ fontSize: 10, fill: "#64748b" }}
-                        axisLine={false}
-                        tickLine={false}
-                        tickFormatter={(v) => `${v}k`}
-                      />
-                      <YAxis
-                        type="category"
-                        dataKey="commune"
-                        tick={{ fontSize: 11, fill: "#475569" }}
-                        axisLine={false}
-                        tickLine={false}
-                        width={75}
-                      />
-                      <Tooltip formatter={(v) => [`${formatNumber((v as number) * 1000)} F CFA`]} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Bar dataKey="tsp" name="TSP" fill="#06B6D4" radius={[0, 3, 3, 0]} />
-                      <Bar dataKey="odp" name="ODP" fill="#8B5CF6" radius={[0, 3, 3, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-
-              {/* ══════════════════════════════════════════════
-                  SECTION 5 — Grille : Top communes fiscales + État supports + Alertes
-              ══════════════════════════════════════════════ */}
-              <div className="mb-2">
-                <h2 className="mb-3 text-[12px] font-bold uppercase tracking-widest text-slate-400">
-                  Analyse fiscale
-                </h2>
-              </div>
-              <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
-                {/* Top communes montant réclamé */}
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-[14px] font-bold text-slate-800">Top communes coûteuses</h2>
-                    {filterCommune && (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-                        {filterCommune}
-                      </span>
+                  {/* TSP + ODP par type de support */}
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
+                    <p className="mb-4 text-[13px] font-semibold text-slate-600">
+                      Par type de support (en milliers FCFA)
+                    </p>
+                    {parType.length === 0 ? (
+                      <div className="flex h-48 items-center justify-center text-slate-400 text-[13px]">
+                        Aucune donnée disponible.
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={260}>
+                        <BarChart data={parType} margin={{ top: 5, right: 10, left: 0, bottom: 40 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                          <XAxis
+                            dataKey="type"
+                            tick={{ fontSize: 10, fill: "#64748b" }}
+                            axisLine={false}
+                            tickLine={false}
+                            angle={-30}
+                            textAnchor="end"
+                            interval={0}
+                          />
+                          <YAxis
+                            tick={{ fontSize: 10, fill: "#64748b" }}
+                            axisLine={false}
+                            tickLine={false}
+                            tickFormatter={(v) => `${v}k`}
+                          />
+                          <Tooltip formatter={(v) => [`${formatNumber((v as number) * 1000)} F CFA`]} />
+                          <Legend wrapperStyle={{ fontSize: 12 }} />
+                          <Bar dataKey="tsp" name="TSP" fill={NAVY} radius={[3, 3, 0, 0]} />
+                          <Bar dataKey="odp" name="ODP" fill={GOLD} radius={[3, 3, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
                     )}
                   </div>
-                  {filteredTopCommunes.length === 0 ? (
-                    <p className="py-8 text-center text-[13px] text-slate-400">Aucune donnée.</p>
-                  ) : (
-                    <ResponsiveContainer width="100%" height={200}>
-                      <BarChart data={filteredTopCommunes}>
-                        <XAxis dataKey="commune" tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                        <YAxis tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v / 1_000_000}M`} />
-                        <Tooltip cursor={{ fill: "#f8fafc" }} formatter={(value) => [`${formatNumber(value as number)} FCFA`, "Montant"]} />
-                        <Bar dataKey="montantReclame" fill="#0B3C53" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  )}
-                  <Link href="/analyse-fiscale" className="mt-2 inline-block text-[13px] font-semibold text-[#0B3C53] hover:underline">
-                    Voir l&apos;analyse complète →
-                  </Link>
-                </div>
 
-                {/* Donut état supports */}
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <h2 className="mb-4 text-[14px] font-bold text-slate-800">État des supports</h2>
-                  <div className="relative flex items-center justify-center">
-                    <ResponsiveContainer width="100%" height={180}>
-                      <PieChart>
-                        <Pie data={data.supportStatus} dataKey="count" nameKey="label"
-                          innerRadius={55} outerRadius={80} paddingAngle={3} stroke="none">
-                          {data.supportStatus.map((entry) => (
-                            <Cell key={entry.label} fill={DONUT_COLORS[entry.label] ?? "#cbd5e1"} />
-                          ))}
-                        </Pie>
-                      </PieChart>
-                    </ResponsiveContainer>
-                    <div className="pointer-events-none absolute flex flex-col items-center">
-                      <p className="text-xl font-bold text-slate-900">{formatNumber(totalSupports)}</p>
-                      <p className="text-[10px] text-slate-400">Total</p>
+                  {/* TSP + ODP par commune */}
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-3">
+                    <div className="mb-4 flex items-center justify-between">
+                      <p className="text-[13px] font-semibold text-slate-600">
+                        Par commune — Top 8 (en milliers FCFA)
+                      </p>
+                      <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">
+                        <BarChart3 className="h-3 w-3" />
+                        Valeurs réelles des supports
+                      </span>
                     </div>
+                    {parCommune.length === 0 ? (
+                      <p className="py-8 text-center text-[13px] text-slate-400">Aucune donnée disponible.</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={260}>
+                        <BarChart
+                          data={parCommune}
+                          layout="vertical"
+                          margin={{ top: 0, right: 20, left: 80, bottom: 0 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                          <XAxis
+                            type="number"
+                            tick={{ fontSize: 10, fill: "#64748b" }}
+                            axisLine={false}
+                            tickLine={false}
+                            tickFormatter={(v) => `${v}k`}
+                          />
+                          <YAxis
+                            type="category"
+                            dataKey="commune"
+                            tick={{ fontSize: 11, fill: "#475569" }}
+                            axisLine={false}
+                            tickLine={false}
+                            width={75}
+                          />
+                          <Tooltip formatter={(v) => [`${formatNumber((v as number) * 1000)} F CFA`]} />
+                          <Legend wrapperStyle={{ fontSize: 12 }} />
+                          <Bar dataKey="tsp" name="TSP" fill={NAVY} radius={[0, 3, 3, 0]} />
+                          <Bar dataKey="odp" name="ODP" fill={GOLD} radius={[0, 3, 3, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
                   </div>
-                  <div className="mt-2 space-y-2">
-                    {data.supportStatus.map((s) => (
-                      <div key={s.label} className="flex items-center justify-between text-[12px]">
-                        <div className="flex items-center gap-2">
-                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: DONUT_COLORS[s.label] ?? "#cbd5e1" }} />
-                          <span className="font-medium text-slate-700">{s.label}</span>
-                          <span className="text-slate-400">({formatNumber(s.count)})</span>
-                        </div>
-                        <span className="font-bold text-slate-700">{s.percentage}%</span>
+                </div>
+              )}
+
+              {/* ── Onglet : Analyse fiscale ── */}
+              {activeTab === "fiscal" && (
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
+                    <div className="mb-4 flex items-center justify-between">
+                      <p className="text-[13px] font-semibold text-slate-600">Top communes coûteuses</p>
+                      {filterCommune && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                          {filterCommune}
+                        </span>
+                      )}
+                    </div>
+                    {filteredTopCommunes.length === 0 ? (
+                      <p className="py-8 text-center text-[13px] text-slate-400">Aucune donnée.</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={260}>
+                        <BarChart data={filteredTopCommunes}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                          <XAxis dataKey="commune" tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                          <YAxis tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v / 1_000_000}M`} />
+                          <Tooltip cursor={{ fill: "#f8fafc" }} formatter={(value) => [`${formatNumber(value as number)} FCFA`, "Montant"]} />
+                          <Bar dataKey="montantReclame" fill={NAVY} radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                    <Link href="/analyse-fiscale" className="mt-2 inline-block text-[13px] font-semibold text-[#0B3C53] hover:underline">
+                      Voir l&apos;analyse complète →
+                    </Link>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <p className="mb-4 text-[13px] font-semibold text-slate-600">État des supports</p>
+                    <div className="relative flex items-center justify-center">
+                      <ResponsiveContainer width="100%" height={180}>
+                        <PieChart>
+                          <Pie data={data.supportStatus} dataKey="count" nameKey="label"
+                            innerRadius={55} outerRadius={80} paddingAngle={3} stroke="none">
+                            {data.supportStatus.map((entry) => (
+                              <Cell key={entry.label} fill={DONUT_COLORS[entry.label] ?? "#cbd5e1"} />
+                            ))}
+                          </Pie>
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="pointer-events-none absolute flex flex-col items-center">
+                        <p className="text-xl font-bold text-slate-900">{formatNumber(totalSupports)}</p>
+                        <p className="text-[10px] text-slate-400">Total</p>
                       </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Alertes prioritaires */}
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <h2 className="mb-4 text-[14px] font-bold text-slate-800">Alertes prioritaires</h2>
-                  {data.priorityAlerts.length === 0 ? (
-                    <p className="text-[13px] text-slate-400">Aucune alerte en cours.</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {data.priorityAlerts.map((alert) => (
-                        <div key={alert.id} className="flex items-start gap-3">
-                          <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${severityIconClasses(alert.severity as AlertSeverity)}`}>
-                            <AlertTriangle className="h-3.5 w-3.5" />
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {data.supportStatus.map((s) => (
+                        <div key={s.label} className="flex items-center justify-between text-[12px]">
+                          <div className="flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: DONUT_COLORS[s.label] ?? "#cbd5e1" }} />
+                            <span className="font-medium text-slate-700">{s.label}</span>
+                            <span className="text-slate-400">({formatNumber(s.count)})</span>
                           </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-[13px] font-semibold text-slate-800">{alert.title}</p>
-                            <p className="truncate text-[11px] text-slate-500">{alert.description}</p>
-                            <p className="mt-0.5 text-[11px] text-slate-400">{alert.timeAgo}</p>
-                          </div>
-                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${severityBadgeClasses(alert.severity as AlertSeverity)}`}>
-                            {alert.severity}
-                          </span>
+                          <span className="font-bold text-slate-700">{s.percentage}%</span>
                         </div>
                       ))}
                     </div>
-                  )}
-                </div>
-              </div>
+                  </div>
 
-              {/* ══════════════════════════════════════════════
-                  SECTION 6 — Décision suggérée + Activité récente
-              ══════════════════════════════════════════════ */}
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-                <div className="rounded-xl border border-slate-200 bg-gradient-to-br from-[#0B3C53] to-[#0E4F66] p-6 text-white shadow-sm xl:col-span-2">
-                  <div className="flex items-start gap-4">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-400">
-                      <Lightbulb className="h-5 w-5 text-white" />
-                    </div>
-                    <div>
-                      <h2 className="mb-2 text-[14px] font-bold">Décision suggérée</h2>
-                      <p className="text-[13px] leading-relaxed text-white/80">{data.decisionSuggestion.text}</p>
-                      <button className="mt-4 rounded-lg bg-white px-4 py-2.5 text-[13px] font-bold text-[#0B3C53] hover:bg-white/90">
-                        {data.decisionSuggestion.ctaLabel}
-                      </button>
+                  <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-[#0B3C53] to-[#0E4F66] p-6 text-white shadow-sm xl:col-span-3">
+                    <div className="flex items-start gap-4">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: GOLD }}>
+                        <Lightbulb className="h-5 w-5 text-white" />
+                      </div>
+                      <div>
+                        <h2 className="mb-2 text-[14px] font-bold">Décision suggérée</h2>
+                        <p className="text-[13px] leading-relaxed text-white/80">{data.decisionSuggestion.text}</p>
+                        <button className="mt-4 rounded-lg bg-white px-4 py-2.5 text-[13px] font-bold text-[#0B3C53] hover:bg-white/90">
+                          {data.decisionSuggestion.ctaLabel}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
+              )}
 
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <h2 className="mb-4 text-[14px] font-bold text-slate-800">Activité récente</h2>
-                  {data.recentActivity.length === 0 ? (
-                    <p className="text-[13px] text-slate-400">Aucune activité récente.</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {data.recentActivity.map((act) => (
-                        <div key={act.id} className="flex items-start gap-3">
-                          <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${activityIconClasses(act.type)}`}>
-                            {activityIcon(act.type)}
+              {/* ── Onglet : Alertes & activité ── */}
+              {activeTab === "activite" && (
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <p className="mb-4 text-[13px] font-semibold text-slate-600">Alertes prioritaires</p>
+                    {data.priorityAlerts.length === 0 ? (
+                      <p className="text-[13px] text-slate-400">Aucune alerte en cours.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {data.priorityAlerts.map((alert) => (
+                          <div key={alert.id} className="flex items-start gap-3">
+                            <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${severityIconClasses(alert.severity as AlertSeverity)}`}>
+                              <AlertTriangle className="h-3.5 w-3.5" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-[13px] font-semibold text-slate-800">{alert.title}</p>
+                              <p className="truncate text-[11px] text-slate-500">{alert.description}</p>
+                              <p className="mt-0.5 text-[11px] text-slate-400">{alert.timeAgo}</p>
+                            </div>
+                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${severityBadgeClasses(alert.severity as AlertSeverity)}`}>
+                              {alert.severity}
+                            </span>
                           </div>
-                          <div className="min-w-0">
-                            <p className="text-[12px] leading-snug text-slate-700">{act.description}</p>
-                            <p className="mt-0.5 text-[11px] text-slate-400">{act.timeAgo}</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <p className="mb-4 text-[13px] font-semibold text-slate-600">Activité récente</p>
+                    {data.recentActivity.length === 0 ? (
+                      <p className="text-[13px] text-slate-400">Aucune activité récente.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {data.recentActivity.map((act) => (
+                          <div key={act.id} className="flex items-start gap-3">
+                            <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${activityIconClasses(act.type)}`}>
+                              {activityIcon(act.type)}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[12px] leading-snug text-slate-700">{act.description}</p>
+                              <p className="mt-0.5 text-[11px] text-slate-400">{act.timeAgo}</p>
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
             </>
           )}
         </main>

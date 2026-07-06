@@ -42,7 +42,16 @@ import {
   SlidersHorizontal,
   RefreshCw,
   XCircle,
-  Handshake
+  Handshake,
+  Building2,
+  Ruler,
+  Phone,
+  User,
+  Calendar,
+  FileText,
+  Radar,
+  Layers,
+  Info,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiFetch, getAccessToken } from "@/lib/api/client";
@@ -192,6 +201,13 @@ interface PaginatedResponse<T> {
   results: T[];
 }
 
+type ToastKind = "success" | "error";
+interface ToastState {
+  id: number;
+  kind: ToastKind;
+  message: string;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -201,6 +217,16 @@ function formatDate(iso: string): string {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
+  });
+}
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -227,10 +253,12 @@ const VISIBILITE_BADGE: Record<string, string> = {
   Faible: "bg-orange-100 text-orange-700",
 };
 
-function imageUrl(path: string | null): string | null {
+// Convertit un chemin relatif renvoyé par l'API en URL absolue utilisable
+// aussi bien dans le tableau, la carte que la fiche de détail.
+function imageUrl(path: string | null | undefined): string | null {
   if (!path) return null;
   if (path.startsWith("http")) return path;
-  return `${BASE_URL}${path}`;
+  return `${BASE_URL}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -326,9 +354,10 @@ const ACTIVE_HREF = "/supports-publicitaires";
 // Sous-composants UI
 // ---------------------------------------------------------------------------
 
-function SectionTitle({ children }: { children: ReactNode }) {
+function SectionTitle({ children, icon: Icon }: { children: ReactNode; icon?: any }) {
   return (
-    <h3 className="mb-3 text-[11px] font-bold uppercase tracking-widest text-slate-400">
+    <h3 className="mb-3 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-slate-400">
+      {Icon && <Icon className="h-3.5 w-3.5" />}
       {children}
     </h3>
   );
@@ -378,7 +407,7 @@ function TextInput({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       required={required}
-      className={`w-full rounded-lg border ${error ? 'border-red-300' : 'border-slate-200'} px-3 py-2 text-[13px] text-slate-800 outline-none focus:border-[#0B3C53] focus:ring-1 focus:ring-[#0B3C53]/20`}
+      className={`w-full rounded-lg border ${error ? "border-red-300" : "border-slate-200"} px-3 py-2 text-[13px] text-slate-800 outline-none transition-colors focus:border-[#0B3C53] focus:ring-1 focus:ring-[#0B3C53]/20`}
     />
   );
 }
@@ -406,7 +435,7 @@ function SelectInput({
       onChange={(e) => onChange(e.target.value)}
       required={required}
       disabled={isLoading}
-      className={`w-full rounded-lg border ${error ? 'border-red-300' : 'border-slate-200'} px-3 py-2 text-[13px] text-slate-800 outline-none focus:border-[#0B3C53] disabled:opacity-60`}
+      className={`w-full rounded-lg border ${error ? "border-red-300" : "border-slate-200"} px-3 py-2 text-[13px] text-slate-800 outline-none transition-colors focus:border-[#0B3C53] disabled:opacity-60`}
     >
       {placeholder && <option value="">{isLoading ? "Chargement..." : placeholder}</option>}
       {options.map((o) => (
@@ -440,6 +469,81 @@ function CheckboxInput({
   );
 }
 
+// Petite pastille pour la fiche de détail (lecture seule)
+function DetailItem({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: ReactNode;
+  icon?: any;
+}) {
+  return (
+    <div>
+      <p className="mb-1 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+        {Icon && <Icon className="h-3 w-3" />}
+        {label}
+      </p>
+      <p className="text-[13px] font-medium text-slate-800">
+        {value === null || value === undefined || value === "" ? (
+          <span className="text-slate-300">—</span>
+        ) : (
+          value
+        )}
+      </p>
+    </div>
+  );
+}
+
+function DetailTag({ active, label }: { active: boolean; label: string }) {
+  if (!active) return null;
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-[#0B3C53]/10 px-2.5 py-1 text-[11px] font-semibold text-[#0B3C53]">
+      <CheckCircle2 className="h-3 w-3" />
+      {label}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Toasts
+// ---------------------------------------------------------------------------
+
+function ToastStack({
+  toasts,
+  onDismiss,
+}: {
+  toasts: ToastState[];
+  onDismiss: (id: number) => void;
+}) {
+  if (toasts.length === 0) return null;
+  return (
+    <div className="pointer-events-none fixed bottom-5 right-5 z-[100] flex flex-col gap-2">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className={`pointer-events-auto flex w-80 items-start gap-2.5 rounded-xl border px-4 py-3 shadow-lg backdrop-blur-sm transition-all animate-in fade-in slide-in-from-bottom-2 ${
+            t.kind === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-red-200 bg-red-50 text-red-800"
+          }`}
+        >
+          {t.kind === "success" ? (
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+          ) : (
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          )}
+          <p className="flex-1 text-[13px] font-medium leading-snug">{t.message}</p>
+          <button onClick={() => onDismiss(t.id)} className="shrink-0 opacity-60 hover:opacity-100">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Composant Upload image avec aperçu + caméra
 // ---------------------------------------------------------------------------
@@ -458,6 +562,10 @@ function ImageUploadField({
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setPreview(currentUrl);
+  }, [currentUrl]);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
@@ -543,8 +651,9 @@ function ImageUploadField({
           </div>
         </div>
       ) : preview ? (
-        <div className="relative overflow-hidden rounded-lg border border-slate-200">
+        <div className="group relative overflow-hidden rounded-lg border border-slate-200">
           <img src={preview} alt="Aperçu" className="h-40 w-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
           <button
             type="button"
             onClick={clearImage}
@@ -558,7 +667,7 @@ function ImageUploadField({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 py-4 text-[13px] font-medium text-slate-500 hover:border-[#0B3C53] hover:bg-slate-100"
+            className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 py-4 text-[13px] font-medium text-slate-500 transition-colors hover:border-[#0B3C53] hover:bg-slate-100"
           >
             <Upload className="h-4 w-4" />
             Importer un fichier
@@ -566,7 +675,7 @@ function ImageUploadField({
           <button
             type="button"
             onClick={startCamera}
-            className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-[13px] font-medium text-slate-500 hover:border-[#0B3C53] hover:bg-slate-100"
+            className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-[13px] font-medium text-slate-500 transition-colors hover:border-[#0B3C53] hover:bg-slate-100"
           >
             <Camera className="h-4 w-4" />
             Caméra
@@ -630,6 +739,9 @@ export default function SupportsPublicitairesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
+  // Modal détail (lecture seule)
+  const [detailTarget, setDetailTarget] = useState<Support | null>(null);
+
   // Modal import en masse
   const [importModalOpen, setImportModalOpen] = useState(false);
 
@@ -638,6 +750,22 @@ export default function SupportsPublicitairesPage() {
 
   // Modal suppression
   const [deleteTarget, setDeleteTarget] = useState<Support | null>(null);
+
+  // Toasts
+  const [toasts, setToasts] = useState<ToastState[]>([]);
+  const toastIdRef = useRef(0);
+
+  const showToast = useCallback((kind: ToastKind, message: string) => {
+    const id = ++toastIdRef.current;
+    setToasts((prev) => [...prev, { id, kind, message }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  }, []);
+
+  function dismissToast(id: number) {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }
 
   // Redirect si non connecté
   useEffect(() => {
@@ -751,6 +879,12 @@ export default function SupportsPublicitairesPage() {
     return params.toString();
   }, [search, filterCommune, filterType, filterEtat, filterVisibilite, filterCanal, filterAgent]);
 
+  // Nombre de filtres actifs (hors recherche texte) — utile pour le badge du panneau
+  const activeFilterCount = useMemo(() => {
+    return [filterCommune, filterType, filterEtat, filterVisibilite, filterCanal, filterAgent].filter(Boolean)
+      .length;
+  }, [filterCommune, filterType, filterEtat, filterVisibilite, filterCanal, filterAgent]);
+
   // Charger les supports
   const loadSupports = useCallback(async () => {
     if (!user) return;
@@ -789,6 +923,23 @@ export default function SupportsPublicitairesPage() {
     };
   }, [supports]);
 
+  // Données formatées pour la carte : on résout les URLs d'images en amont
+  // (l'API renvoie des chemins relatifs, ex. "/media/..." — sans BASE_URL
+  // devant, l'image ne s'affiche jamais dans le composant carte).
+  const mapSupports = useMemo(() => {
+    return supports.map((s) => ({
+      ...s,
+      id: String(s.id),
+      agent: s.agent != null ? String(s.agent) : "",
+      agentNom: s.agentNom ?? "",
+      etatSupport: s.etatSupport as EtatSupport,
+      canal: s.canal as Canal,
+      visibilite: (s.visibilite || "Moyenne") as Visibilite,
+      imageSupport: imageUrl(s.imageSupport),
+      imageSupportSecondaire: imageUrl(s.imageSupportSecondaire),
+    })) as unknown as SupportPublicitaire[];
+  }, [supports]);
+
   // ---------------------------------------------------------------------------
   // CRUD handlers
   // ---------------------------------------------------------------------------
@@ -804,7 +955,12 @@ export default function SupportsPublicitairesPage() {
     setEditingSupport(s);
     setForm({ ...s, imageSupportFile: null, imageSupportSecondaireFile: null });
     setValidationErrors({});
+    setDetailTarget(null);
     setModalOpen(true);
+  }
+
+  function openDetail(s: Support) {
+    setDetailTarget(s);
   }
 
   function validateForm(): boolean {
@@ -827,6 +983,7 @@ export default function SupportsPublicitairesPage() {
     if (!validateForm()) {
       const firstError = document.querySelector('[data-error="true"]');
       if (firstError) firstError.scrollIntoView({ behavior: "smooth", block: "center" });
+      showToast("error", "Veuillez corriger les champs obligatoires en rouge.");
       return;
     }
 
@@ -898,15 +1055,19 @@ export default function SupportsPublicitairesPage() {
       const saved: Support = await res.json();
       if (editingSupport) {
         setSupports((prev) => prev.map((s) => (s.id === saved.id ? saved : s)));
+        showToast("success", `Le support « ${saved.marque} » a été mis à jour.`);
       } else {
         setSupports((prev) => [saved, ...prev]);
         setTotal((t) => t + 1);
+        showToast("success", `Le support « ${saved.marque} » a été créé.`);
       }
       setModalOpen(false);
       setValidationErrors({});
     } catch (error) {
       if (error instanceof Error && error.message !== "Erreur de validation") {
-        alert("Erreur lors de la sauvegarde. Vérifiez tous les champs obligatoires.");
+        showToast("error", "Erreur lors de la sauvegarde. Vérifiez tous les champs obligatoires.");
+      } else if (error instanceof Error && error.message === "Erreur de validation") {
+        showToast("error", "Le serveur a rejeté certains champs. Voir le détail ci-dessus.");
       }
     } finally {
       setIsSubmitting(false);
@@ -919,9 +1080,10 @@ export default function SupportsPublicitairesPage() {
       await apiFetch(`/api/supports/${deleteTarget.id}/soft_delete/`, { method: "POST" });
       setSupports((prev) => prev.filter((s) => s.id !== deleteTarget.id));
       setTotal((t) => t - 1);
+      showToast("success", `« ${deleteTarget.marque} » a été retiré de la liste active.`);
       setDeleteTarget(null);
     } catch {
-      alert("Erreur lors de la suppression.");
+      showToast("error", "Erreur lors de la suppression.");
     }
   }
 
@@ -1076,7 +1238,7 @@ export default function SupportsPublicitairesPage() {
               {/* ── Bouton Import en masse ── */}
               <button
                 onClick={() => setImportModalOpen(true)}
-                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-[13px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 hover:border-slate-300 transition-colors"
+                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-[13px] font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
               >
                 <Upload className="h-4 w-4" />
                 Importer
@@ -1085,7 +1247,7 @@ export default function SupportsPublicitairesPage() {
               {/* ── Bouton Nouveau support ── */}
               <button
                 onClick={openCreate}
-                className="flex items-center gap-2 rounded-lg bg-[#0B3C53] px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm hover:bg-[#0B3C53]/90"
+                className="flex items-center gap-2 rounded-lg bg-[#0B3C53] px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-[#0B3C53]/90"
               >
                 <Plus className="h-4 w-4" />
                 Nouveau support
@@ -1103,7 +1265,10 @@ export default function SupportsPublicitairesPage() {
             ].map((kpi) => {
               const Icon = kpi.icon;
               return (
-                <div key={kpi.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div
+                  key={kpi.label}
+                  className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
+                >
                   <div className="mb-2 flex items-center justify-between">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                       {kpi.label}
@@ -1129,15 +1294,29 @@ export default function SupportsPublicitairesPage() {
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Rechercher une marque, un site, un quartier..."
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-[13px] text-slate-700 outline-none focus:border-[#0B3C53] focus:bg-white"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-9 text-[13px] text-slate-700 outline-none transition-colors focus:border-[#0B3C53] focus:bg-white"
                 />
+                {search && (
+                  <button
+                    onClick={() => setSearch("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500"
+                    aria-label="Effacer la recherche"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
               </div>
               <button
                 onClick={resetFilters}
-                className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5 text-[13px] font-medium text-slate-500 hover:bg-slate-50"
+                className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5 text-[13px] font-medium text-slate-500 transition-colors hover:bg-slate-50"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 Réinitialiser
+                {activeFilterCount > 0 && (
+                  <span className="ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#0B3C53] px-1 text-[10px] font-bold text-white">
+                    {activeFilterCount}
+                  </span>
+                )}
               </button>
             </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -1147,7 +1326,7 @@ export default function SupportsPublicitairesPage() {
                 <select
                   value={filterCommune}
                   onChange={(e) => setFilterCommune(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none focus:border-[#0B3C53]"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none transition-colors focus:border-[#0B3C53]"
                 >
                   <option value="">Toutes</option>
                   {communeOptions.map((o) => (
@@ -1162,7 +1341,7 @@ export default function SupportsPublicitairesPage() {
                 <select
                   value={filterType}
                   onChange={(e) => setFilterType(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none focus:border-[#0B3C53]"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none transition-colors focus:border-[#0B3C53]"
                 >
                   <option value="">Tous</option>
                   {typeSupportOptions.map((o) => (
@@ -1177,7 +1356,7 @@ export default function SupportsPublicitairesPage() {
                 <select
                   value={filterEtat}
                   onChange={(e) => setFilterEtat(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none focus:border-[#0B3C53]"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none transition-colors focus:border-[#0B3C53]"
                 >
                   <option value="">Tous</option>
                   {etatOptions.map((o) => (
@@ -1192,7 +1371,7 @@ export default function SupportsPublicitairesPage() {
                 <select
                   value={filterVisibilite}
                   onChange={(e) => setFilterVisibilite(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none focus:border-[#0B3C53]"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none transition-colors focus:border-[#0B3C53]"
                 >
                   <option value="">Toutes</option>
                   {visibiliteOptions.map((o) => (
@@ -1207,7 +1386,7 @@ export default function SupportsPublicitairesPage() {
                 <select
                   value={filterCanal}
                   onChange={(e) => setFilterCanal(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none focus:border-[#0B3C53]"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none transition-colors focus:border-[#0B3C53]"
                 >
                   <option value="">Tous</option>
                   {canalOptions.map((o) => (
@@ -1222,7 +1401,7 @@ export default function SupportsPublicitairesPage() {
                 <select
                   value={filterAgent}
                   onChange={(e) => setFilterAgent(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none focus:border-[#0B3C53]"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-700 outline-none transition-colors focus:border-[#0B3C53]"
                 >
                   <option value="">Tous</option>
                   {agentOptions.map((o) => (
@@ -1235,8 +1414,24 @@ export default function SupportsPublicitairesPage() {
 
           {/* État de chargement / erreur */}
           {isLoading && (
-            <div className="flex h-48 items-center justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-[#0B3C53]" />
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-3">
+                <Loader2 className="h-4 w-4 animate-spin text-[#0B3C53]" />
+                <p className="text-[13px] font-medium text-slate-400">Chargement des supports…</p>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-4 px-5 py-3.5">
+                    <div className="h-12 w-12 shrink-0 animate-pulse rounded-lg bg-slate-100" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-3 w-1/3 animate-pulse rounded bg-slate-100" />
+                      <div className="h-2.5 w-1/4 animate-pulse rounded bg-slate-100" />
+                    </div>
+                    <div className="h-6 w-16 animate-pulse rounded-full bg-slate-100" />
+                    <div className="h-6 w-20 animate-pulse rounded-full bg-slate-100" />
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -1260,7 +1455,7 @@ export default function SupportsPublicitairesPage() {
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[980px] border-collapse text-sm">
-                  <thead>
+                  <thead className="sticky top-0 z-10">
                     <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                       <th className="px-4 py-2.5">Photo</th>
                       <th className="px-3 py-2.5">Marque / Site</th>
@@ -1279,7 +1474,10 @@ export default function SupportsPublicitairesPage() {
                     {supports.map((s) => {
                       const imgUrl = imageUrl(s.imageSupport);
                       return (
-                        <tr key={s.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                        <tr
+                          key={s.id}
+                          className="border-b border-slate-100 last:border-0 transition-colors hover:bg-slate-50"
+                        >
                           <td className="px-4 py-2.5">
                             {imgUrl ? (
                               <button
@@ -1302,8 +1500,13 @@ export default function SupportsPublicitairesPage() {
                             )}
                           </td>
                           <td className="px-3 py-2.5">
-                            <p className="font-semibold text-slate-800">{s.marque}</p>
-                            <p className="text-[12px] text-slate-400">{s.nomSite}</p>
+                            <button
+                              onClick={() => openDetail(s)}
+                              className="text-left hover:underline decoration-[#0B3C53]/40 underline-offset-2"
+                            >
+                              <p className="font-semibold text-slate-800">{s.marque}</p>
+                              <p className="text-[12px] text-slate-400">{s.nomSite}</p>
+                            </button>
                           </td>
                           <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{s.typeSupport || "—"}</td>
                           <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{s.commune}</td>
@@ -1325,15 +1528,22 @@ export default function SupportsPublicitairesPage() {
                           <td className="px-3 py-2.5">
                             <div className="flex items-center justify-end gap-1">
                               <button
+                                onClick={() => openDetail(s)}
+                                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-[#0B3C53]"
+                                title="Voir les détails"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </button>
+                              <button
                                 onClick={() => openEdit(s)}
-                                className="rounded-md p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
                                 title="Modifier"
                               >
                                 <Pencil className="h-4 w-4" />
                               </button>
                               <button
                                 onClick={() => setDeleteTarget(s)}
-                                className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
                                 title="Supprimer"
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -1345,8 +1555,25 @@ export default function SupportsPublicitairesPage() {
                     })}
                     {supports.length === 0 && !isLoading && (
                       <tr>
-                        <td colSpan={11} className="px-5 py-12 text-center text-slate-400">
-                          Aucun support ne correspond à ces filtres.
+                        <td colSpan={11} className="px-5 py-16 text-center">
+                          <div className="mx-auto flex max-w-xs flex-col items-center gap-3">
+                            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-50 text-slate-300">
+                              <Search className="h-5 w-5" />
+                            </div>
+                            <p className="text-[13px] font-semibold text-slate-600">
+                              Aucun support ne correspond à ces filtres
+                            </p>
+                            <p className="text-[12px] text-slate-400">
+                              Essayez d'élargir votre recherche ou réinitialisez les filtres actifs.
+                            </p>
+                            <button
+                              onClick={resetFilters}
+                              className="mt-1 flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-[12px] font-semibold text-slate-600 hover:bg-slate-50"
+                            >
+                              <RefreshCw className="h-3.5 w-3.5" />
+                              Réinitialiser les filtres
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )}
@@ -1360,15 +1587,7 @@ export default function SupportsPublicitairesPage() {
           {!isLoading && !error && viewMode === "carte" && (
             <div className="h-[580px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
               <SupportsMap
-                supports={supports.map((s) => ({
-                  ...s,
-                  id: String(s.id),
-                  agent: s.agent != null ? String(s.agent) : "",
-                  agentNom: s.agentNom ?? "",
-                  etatSupport: s.etatSupport as EtatSupport,
-                  canal: s.canal as Canal,
-                  visibilite: (s.visibilite || "Moyenne") as Visibilite,
-                })) as SupportPublicitaire[]}
+                supports={mapSupports}
                 onEdit={(s) => {
                   const original = supports.find((x) => String(x.id) === s.id);
                   if (original) openEdit(original);
@@ -1381,8 +1600,8 @@ export default function SupportsPublicitairesPage() {
 
       {/* ===================== MODAL CRUD ===================== */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="flex max-h-[92vh] w-full max-w-4xl flex-col rounded-xl bg-white shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 animate-in fade-in">
+          <div className="flex max-h-[92vh] w-full max-w-4xl flex-col rounded-xl bg-white shadow-2xl animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
               <h2 className="text-[16px] font-bold text-slate-900">
                 {editingSupport ? "Modifier le support" : "Nouveau support"}
@@ -1406,7 +1625,7 @@ export default function SupportsPublicitairesPage() {
 
               {/* Identification */}
               <div>
-                <SectionTitle>Identification</SectionTitle>
+                <SectionTitle icon={Building2}>Identification</SectionTitle>
                 <div className="grid grid-cols-3 gap-4">
                   <FormField label="Marque" required>
                     <TextInput value={form.marque ?? ""} onChange={(v) => setForm((f) => ({ ...f, marque: v }))} required />
@@ -1422,7 +1641,7 @@ export default function SupportsPublicitairesPage() {
 
               {/* Localisation - Utilisation des selects avec données des endpoints */}
               <div>
-                <SectionTitle>Localisation</SectionTitle>
+                <SectionTitle icon={MapPin}>Localisation</SectionTitle>
                 <div className="grid grid-cols-3 gap-4">
                   <FormField label="Commune">
                     <SelectInput
@@ -1471,7 +1690,7 @@ export default function SupportsPublicitairesPage() {
 
               {/* Caractéristiques - Utilisation des selects avec données des endpoints */}
               <div>
-                <SectionTitle>Caractéristiques techniques</SectionTitle>
+                <SectionTitle icon={Layers}>Caractéristiques techniques</SectionTitle>
                 <div className="grid grid-cols-3 gap-4">
                   <FormField label="Type de support">
                     <SelectInput
@@ -1559,7 +1778,7 @@ export default function SupportsPublicitairesPage() {
 
               {/* Photos */}
               <div>
-                <SectionTitle>Photos du support</SectionTitle>
+                <SectionTitle icon={Camera}>Photos du support</SectionTitle>
                 <div className="grid grid-cols-2 gap-4">
                   <ImageUploadField
                     label="Photo principale"
@@ -1576,7 +1795,7 @@ export default function SupportsPublicitairesPage() {
 
               {/* Responsables */}
               <div>
-                <SectionTitle>Responsables</SectionTitle>
+                <SectionTitle icon={Users}>Responsables</SectionTitle>
                 <div className="grid grid-cols-2 gap-6">
                   <div>
                     <h4 className="mb-3 text-[13px] font-semibold text-slate-700">Responsable terrain</h4>
@@ -1641,7 +1860,7 @@ export default function SupportsPublicitairesPage() {
 
               {/* Fiscalité */}
               <div>
-                <SectionTitle>Fiscalité</SectionTitle>
+                <SectionTitle icon={Receipt}>Fiscalité</SectionTitle>
                 <div className="grid grid-cols-3 gap-4">
                   <FormField label="Durée (mois)">
                     <TextInput type="number" value={form.duree ?? null} onChange={(v) => setForm((f) => ({ ...f, duree: v ? parseFloat(v) : null }))} />
@@ -1666,14 +1885,14 @@ export default function SupportsPublicitairesPage() {
 
               {/* Description */}
               <div>
-                <SectionTitle>Description & observations</SectionTitle>
+                <SectionTitle icon={FileText}>Description & observations</SectionTitle>
                 <div className="grid grid-cols-2 gap-4">
                   <FormField label="Description">
                     <textarea
                       value={form.description ?? ""}
                       onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                       rows={2}
-                      className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-800 outline-none focus:border-[#0B3C53]"
+                      className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-800 outline-none transition-colors focus:border-[#0B3C53]"
                     />
                   </FormField>
                   <FormField label="Observation">
@@ -1681,7 +1900,7 @@ export default function SupportsPublicitairesPage() {
                       value={form.observation ?? ""}
                       onChange={(e) => setForm((f) => ({ ...f, observation: e.target.value }))}
                       rows={2}
-                      className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-800 outline-none focus:border-[#0B3C53]"
+                      className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-800 outline-none transition-colors focus:border-[#0B3C53]"
                     />
                   </FormField>
                 </div>
@@ -1699,11 +1918,241 @@ export default function SupportsPublicitairesPage() {
                 form="support-form"
                 type="submit"
                 disabled={isSubmitting}
-                className="flex items-center gap-2 rounded-lg bg-[#0B3C53] px-5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#0B3C53]/90 disabled:opacity-60"
+                className="flex items-center gap-2 rounded-lg bg-[#0B3C53] px-5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#0B3C53]/90 disabled:opacity-60"
               >
                 {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
                 {editingSupport ? "Enregistrer les modifications" : "Créer le support"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================== MODAL DÉTAIL (LECTURE SEULE) ===================== */}
+      {detailTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 animate-in fade-in">
+          <div className="flex max-h-[92vh] w-full max-w-3xl flex-col rounded-xl bg-white shadow-2xl animate-in zoom-in-95">
+            {/* En-tête avec photo de couverture */}
+            <div className="relative shrink-0">
+              {imageUrl(detailTarget.imageSupport) ? (
+                <button
+                  onClick={() => setLightboxUrl(imageUrl(detailTarget.imageSupport))}
+                  className="group block h-40 w-full overflow-hidden"
+                >
+                  <img
+                    src={imageUrl(detailTarget.imageSupport)!}
+                    alt={detailTarget.marque}
+                    className="h-full w-full object-cover transition group-hover:scale-105"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+                </button>
+              ) : (
+                <div className="flex h-24 w-full items-center justify-center bg-[#0B3C53]">
+                  <ImageIcon className="h-8 w-8 text-white/40" />
+                </div>
+              )}
+              <button
+                onClick={() => setDetailTarget(null)}
+                className="absolute right-3 top-3 rounded-full bg-white/90 p-1.5 text-slate-600 shadow hover:bg-white"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <div className="absolute bottom-3 left-5 right-5 flex items-end justify-between gap-3">
+                <div>
+                  <p className={`${imageUrl(detailTarget.imageSupport) ? "text-white" : "text-white"} text-[17px] font-bold drop-shadow`}>
+                    {detailTarget.marque}
+                  </p>
+                  <p className={`${imageUrl(detailTarget.imageSupport) ? "text-white/80" : "text-white/70"} text-[12px]`}>
+                    {detailTarget.nomSite || "Site non renseigné"}
+                  </p>
+                </div>
+                <div className="flex gap-1.5">
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold shadow ${ETAT_BADGE[detailTarget.etatSupport] ?? "bg-slate-100 text-slate-600"}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${ETAT_DOT[detailTarget.etatSupport] ?? "bg-slate-400"}`} />
+                    {detailTarget.etatSupport}
+                  </span>
+                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold shadow ${VISIBILITE_BADGE[detailTarget.visibilite] ?? "bg-slate-100 text-slate-600"}`}>
+                    {detailTarget.visibilite || "—"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
+              {/* Photo secondaire éventuelle */}
+              {imageUrl(detailTarget.imageSupportSecondaire) && (
+                <div>
+                  <SectionTitle icon={Camera}>Photo secondaire</SectionTitle>
+                  <button
+                    onClick={() => setLightboxUrl(imageUrl(detailTarget.imageSupportSecondaire))}
+                    className="block h-32 w-48 overflow-hidden rounded-lg border border-slate-200"
+                  >
+                    <img
+                      src={imageUrl(detailTarget.imageSupportSecondaire)!}
+                      alt="Photo secondaire"
+                      className="h-full w-full object-cover transition hover:scale-105"
+                    />
+                  </button>
+                </div>
+              )}
+
+              {/* Identification */}
+              <div>
+                <SectionTitle icon={Building2}>Identification</SectionTitle>
+                <div className="grid grid-cols-3 gap-4">
+                  <DetailItem label="Marque" value={detailTarget.marque} />
+                  <DetailItem label="Entreprise" value={detailTarget.entreprise} />
+                  <DetailItem label="Type de site" value={detailTarget.typeSite} />
+                </div>
+              </div>
+
+              {/* Localisation */}
+              <div>
+                <SectionTitle icon={MapPin}>Localisation</SectionTitle>
+                <div className="grid grid-cols-3 gap-4">
+                  <DetailItem label="Commune" value={detailTarget.commune} />
+                  <DetailItem label="Région" value={detailTarget.region} />
+                  <DetailItem label="District" value={detailTarget.district} />
+                  <DetailItem label="Quartier" value={detailTarget.quartier} />
+                  <DetailItem label="Ville" value={detailTarget.ville} />
+                  <DetailItem label="Village" value={detailTarget.village} />
+                  <DetailItem
+                    label="Coordonnées GPS"
+                    value={
+                      detailTarget.latitude && detailTarget.longitude
+                        ? `${detailTarget.latitude}, ${detailTarget.longitude}`
+                        : null
+                    }
+                  />
+                </div>
+              </div>
+
+              {/* Caractéristiques */}
+              <div>
+                <SectionTitle icon={Layers}>Caractéristiques techniques</SectionTitle>
+                <div className="grid grid-cols-3 gap-4">
+                  <DetailItem label="Type de support" value={detailTarget.typeSupport} />
+                  <DetailItem label="Canal" value={detailTarget.canal} icon={Radar} />
+                  <DetailItem label="Surface" value={detailTarget.surface ? `${detailTarget.surface} m²` : null} icon={Ruler} />
+                  <DetailItem label="Nombre de supports" value={detailTarget.nombreSupport} />
+                  <DetailItem label="Nombre de faces" value={detailTarget.nombreFace} />
+                  <DetailItem label="Surface ODP" value={detailTarget.surfaceODP ? `${detailTarget.surfaceODP} m²` : null} />
+                </div>
+              </div>
+
+              {/* Responsables */}
+              <div>
+                <SectionTitle icon={Users}>Responsables</SectionTitle>
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="rounded-lg bg-slate-50 p-4">
+                    <h4 className="mb-3 text-[12px] font-semibold text-slate-700">Responsable terrain</h4>
+                    <div className="space-y-3">
+                      <DetailItem
+                        label="Nom complet"
+                        icon={User}
+                        value={
+                          detailTarget.responsableNom || detailTarget.responsablePrenom
+                            ? `${detailTarget.responsablePrenom} ${detailTarget.responsableNom}`
+                            : null
+                        }
+                      />
+                      <DetailItem label="Contact" icon={Phone} value={detailTarget.responsableContact} />
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-4">
+                    <h4 className="mb-3 text-[12px] font-semibold text-slate-700">Signataire</h4>
+                    <div className="space-y-3">
+                      <DetailItem
+                        label="Nom complet"
+                        icon={User}
+                        value={
+                          detailTarget.signataireNom || detailTarget.signatairePrenom
+                            ? `${detailTarget.signatairePrenom} ${detailTarget.signataireNom}`
+                            : null
+                        }
+                      />
+                      <DetailItem label="Contact" icon={Phone} value={detailTarget.signataireContact} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Fiscalité */}
+              <div>
+                <SectionTitle icon={Receipt}>Fiscalité</SectionTitle>
+                <div className="mb-3 grid grid-cols-3 gap-4">
+                  <DetailItem label="Durée" value={detailTarget.duree ? `${detailTarget.duree} mois` : null} />
+                  <DetailItem label="TSP" value={detailTarget.tsp ? `${formatNumber(detailTarget.tsp)} FCFA` : null} />
+                  <DetailItem label="Valeur ODP" value={detailTarget.odpValue ? `${formatNumber(detailTarget.odpValue)} FCFA` : null} />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <DetailTag active={detailTarget.odp} label="ODP" />
+                  <DetailTag active={detailTarget.ap} label="AP" />
+                  <DetailTag active={detailTarget.ae} label="AE" />
+                  <DetailTag active={detailTarget.anciennete} label="Ancienneté" />
+                  <DetailTag active={detailTarget.tauxCommune} label="Taux commune" />
+                  <DetailTag active={detailTarget.tauxRegion} label="Taux région" />
+                  <DetailTag active={detailTarget.tauxDistrict} label="Taux district" />
+                  {!detailTarget.odp &&
+                    !detailTarget.ap &&
+                    !detailTarget.ae &&
+                    !detailTarget.anciennete &&
+                    !detailTarget.tauxCommune &&
+                    !detailTarget.tauxRegion &&
+                    !detailTarget.tauxDistrict && (
+                      <span className="text-[12px] text-slate-300">Aucun statut fiscal renseigné</span>
+                    )}
+                </div>
+              </div>
+
+              {/* Description */}
+              {(detailTarget.description || detailTarget.observation) && (
+                <div>
+                  <SectionTitle icon={FileText}>Description & observations</SectionTitle>
+                  <div className="grid grid-cols-2 gap-4">
+                    <DetailItem label="Description" value={detailTarget.description} />
+                    <DetailItem label="Observation" value={detailTarget.observation} />
+                  </div>
+                </div>
+              )}
+
+              {/* Métadonnées */}
+              <div>
+                <SectionTitle icon={Info}>Suivi</SectionTitle>
+                <div className="grid grid-cols-3 gap-4">
+                  <DetailItem label="Agent collecteur" value={detailTarget.agentNom} icon={User} />
+                  <DetailItem label="Date de collecte" value={formatDate(detailTarget.dateCollecte)} icon={Calendar} />
+                  <DetailItem label="Dernière mise à jour" value={formatDateTime(detailTarget.updatedAt)} icon={Calendar} />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
+              <button
+                onClick={() => {
+                  setDeleteTarget(detailTarget);
+                  setDetailTarget(null);
+                }}
+                className="flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-[13px] font-medium text-red-600 hover:bg-red-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                Supprimer
+              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDetailTarget(null)}
+                  className="rounded-lg border border-slate-200 px-4 py-2.5 text-[13px] font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Fermer
+                </button>
+                <button
+                  onClick={() => openEdit(detailTarget)}
+                  className="flex items-center gap-2 rounded-lg bg-[#0B3C53] px-5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#0B3C53]/90"
+                >
+                  <Pencil className="h-4 w-4" />
+                  Modifier
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1716,13 +2165,14 @@ export default function SupportsPublicitairesPage() {
         onImported={() => {
           setImportModalOpen(false);
           loadSupports();
+          showToast("success", "Import terminé avec succès.");
         }}
       />
 
       {/* ===================== LIGHTBOX IMAGE ===================== */}
       {lightboxUrl && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 animate-in fade-in"
           onClick={() => setLightboxUrl(null)}
         >
           <button
@@ -1742,8 +2192,8 @@ export default function SupportsPublicitairesPage() {
 
       {/* ===================== MODAL SUPPRESSION ===================== */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 animate-in fade-in">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl animate-in zoom-in-95">
             <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-50">
               <Trash2 className="h-5 w-5 text-red-500" />
             </div>
@@ -1771,6 +2221,9 @@ export default function SupportsPublicitairesPage() {
           </div>
         </div>
       )}
+
+      {/* ===================== TOASTS ===================== */}
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
