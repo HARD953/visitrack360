@@ -10,6 +10,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import * as XLSX from "xlsx";
 import {
   LayoutDashboard,
   Image as ImageIcon,
@@ -51,6 +52,10 @@ import {
   Pencil,
   Trash2,
   X,
+  Upload,
+  FileSpreadsheet,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import {
   BarChart,
@@ -100,6 +105,29 @@ interface ArgumentairePret {
 interface PaginatedResponse<T> {
   count: number;
   results: T[];
+}
+
+// ---------------------------------------------------------------------------
+// Types import Excel
+// ---------------------------------------------------------------------------
+
+interface ImportRow {
+  rowIndex: number;
+  commune: string;
+  entreprise: string;
+  montantInitial: number;
+  montantRecalcule: number;
+  montantNegocie: number | null;
+  typeProchaineAction: string;
+  dateProchaineAction: string;
+  errors: string[];
+}
+
+interface ImportOutcome {
+  rowIndex: number;
+  commune: string;
+  success: boolean;
+  message?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +231,119 @@ const MOTIFS_ARGUMENTAIRE = [
   { value: "periode", label: "Mauvaise période" },
   { value: "surface", label: "Mauvaise surface" },
 ];
+
+// ---------------------------------------------------------------------------
+// Import Excel — helpers
+// ---------------------------------------------------------------------------
+
+// Colonnes acceptées, insensibles à la casse/accents. La 1ère ligne du fichier doit être l'en-tête.
+const COLUMN_ALIASES: Record<string, string[]> = {
+  commune: ["commune"],
+  entreprise: ["entreprise", "societe", "société"].map(normalizeHeaderSafe),
+  montantInitial: ["montant initial", "montantinitial"],
+  montantRecalcule: ["montant recalcule", "montant recalculé", "montantrecalcule"].map(normalizeHeaderSafe),
+  montantNegocie: ["montant negocie", "montant négocié", "montantnegocie"].map(normalizeHeaderSafe),
+  typeProchaineAction: ["type action", "type prochaine action", "prochaine action"],
+  dateProchaineAction: ["date action", "date prochaine action"],
+};
+
+// normalizeHeaderSafe est utilisé au moment de la définition de COLUMN_ALIASES
+// (avant que normalizeHeader ne soit défini plus bas), donc on la redéfinit ici
+// de façon autonome pour éviter tout problème d'ordre d'initialisation.
+function normalizeHeaderSafe(h: string): string {
+  return h
+    .toString()
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function normalizeHeader(h: string): string {
+  return normalizeHeaderSafe(h);
+}
+
+function findValue(raw: Record<string, unknown>, key: keyof typeof COLUMN_ALIASES): string {
+  const aliases = COLUMN_ALIASES[key];
+  for (const rawKey of Object.keys(raw)) {
+    if (aliases.includes(normalizeHeader(rawKey))) {
+      return String(raw[rawKey] ?? "").trim();
+    }
+  }
+  return "";
+}
+
+function parseMontant(v: string): number | null {
+  if (!v) return null;
+  const cleaned = v.replace(/[^\d.,-]/g, "").replace(",", ".");
+  const n = parseFloat(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeRow(raw: Record<string, unknown>, rowIndex: number): ImportRow {
+  const commune = findValue(raw, "commune");
+  const entreprise = findValue(raw, "entreprise");
+  const montantInitialRaw = findValue(raw, "montantInitial");
+  const montantRecalculeRaw = findValue(raw, "montantRecalcule");
+  const montantNegocieRaw = findValue(raw, "montantNegocie");
+  const typeProchaineAction = findValue(raw, "typeProchaineAction").toLowerCase();
+  const dateProchaineAction = findValue(raw, "dateProchaineAction");
+
+  const montantInitial = parseMontant(montantInitialRaw);
+  const montantRecalcule = parseMontant(montantRecalculeRaw);
+  const montantNegocie = montantNegocieRaw ? parseMontant(montantNegocieRaw) : null;
+
+  const errors: string[] = [];
+  if (!commune) errors.push("Commune manquante");
+  if (montantInitial === null) errors.push("Montant initial invalide/manquant");
+  if (montantRecalcule === null) errors.push("Montant recalculé invalide/manquant");
+  if (montantNegocieRaw && montantNegocie === null) errors.push("Montant négocié invalide");
+  if (typeProchaineAction && !TYPES_ACTION.some((t) => t.value === typeProchaineAction)) {
+    errors.push(`Type d'action inconnu: "${typeProchaineAction}"`);
+  }
+
+  return {
+    rowIndex,
+    commune,
+    entreprise,
+    montantInitial: montantInitial ?? 0,
+    montantRecalcule: montantRecalcule ?? 0,
+    montantNegocie,
+    typeProchaineAction,
+    dateProchaineAction,
+    errors,
+  };
+}
+
+function parseExcelFile(file: File): Promise<ImportRow[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = e.target?.result;
+        const workbook = XLSX.read(data, { type: "binary" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+        resolve(json.map((raw, idx) => normalizeRow(raw, idx + 2))); // +2 car ligne 1 = en-tête
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error("Lecture du fichier impossible"));
+    reader.readAsBinaryString(file);
+  });
+}
+
+function downloadImportTemplate() {
+  const wsData = [
+    ["Commune", "Entreprise", "Montant initial", "Montant recalculé", "Montant négocié", "Type action", "Date action"],
+    ["Cocody", "MTN-CI", 5000000, 4200000, 3800000, "reunion", "2026-07-15T10:00"],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Négociations");
+  XLSX.writeFile(wb, "modele_import_negociations.xlsx");
+}
 
 // ---------------------------------------------------------------------------
 // Navigation
@@ -334,6 +475,13 @@ export default function TableauDeBordPage() {
   const [argModal, setArgModal] = useState<Negociation | null>(null);
   const [argForm, setArgForm] = useState({ motif: "absent" });
   const [deleteTarget, setDeleteTarget] = useState<Negociation | null>(null);
+
+  // ---- état import Excel ----
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [isParsingFile, setIsParsingFile] = useState(false);
+  const [importRows, setImportRows] = useState<ImportRow[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importOutcomes, setImportOutcomes] = useState<ImportOutcome[] | null>(null);
 
   useEffect(() => {
     if (!user) router.replace("/login");
@@ -469,7 +617,7 @@ export default function TableauDeBordPage() {
     try {
       const created = await apiFetch<ArgumentairePret>("/api/argumentaires/", {
         method: "POST",
-        body: JSON.stringify({ motif: argForm.motif, negociation: argModal.id }),
+        body: JSON.stringify({ iconKey: argForm.motif, negociation: argModal.id }), // ✅ iconKey au lieu de motif
       });
       setArgumentaires((prev) => [...prev, created]);
       setArgForm({ motif: "absent" });
@@ -485,6 +633,70 @@ export default function TableauDeBordPage() {
     } catch {
       alert("Erreur lors de la suppression.");
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Import Excel
+  // ---------------------------------------------------------------------------
+
+  async function handleImportFile(e: FormEvent<HTMLInputElement>) {
+    const file = (e.currentTarget as HTMLInputElement).files?.[0];
+    if (!file) return;
+    setIsParsingFile(true);
+    setImportOutcomes(null);
+    try {
+      const rows = await parseExcelFile(file);
+      setImportRows(rows);
+    } catch {
+      alert("Impossible de lire ce fichier. Vérifiez qu'il s'agit bien d'un .xlsx ou .xls valide.");
+    } finally {
+      setIsParsingFile(false);
+      (e.currentTarget as HTMLInputElement).value = ""; // permet de re-sélectionner le même fichier
+    }
+  }
+
+  async function handleConfirmImport() {
+    const validRows = importRows.filter((r) => r.errors.length === 0);
+    if (!validRows.length) return;
+    setIsImporting(true);
+    const outcomes: ImportOutcome[] = [];
+
+    for (const row of validRows) {
+      try {
+        const payload = {
+          commune: row.commune,
+          entreprise: row.entreprise,
+          montantInitial: row.montantInitial,
+          montantRecalcule: row.montantRecalcule,
+          montantNegocie: row.montantNegocie,
+          type_prochaine_action: row.typeProchaineAction || null,
+          date_prochaine_action: row.dateProchaineAction || null,
+        };
+        const created = await apiFetch<Negociation>("/api/negociations/", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        setNegociations((prev) => [created, ...prev]);
+        outcomes.push({ rowIndex: row.rowIndex, commune: row.commune, success: true });
+      } catch {
+        outcomes.push({
+          rowIndex: row.rowIndex,
+          commune: row.commune,
+          success: false,
+          message: "Échec de la création",
+        });
+      }
+    }
+
+    setImportOutcomes(outcomes);
+    setIsImporting(false);
+    setImportRows([]);
+  }
+
+  function closeImportModal() {
+    setImportModalOpen(false);
+    setImportRows([]);
+    setImportOutcomes(null);
   }
 
   const maxMonthlySaving = data
@@ -587,13 +799,20 @@ export default function TableauDeBordPage() {
               <h1 className="text-2xl font-bold text-slate-900">Dashboard Négociations &amp; Économies</h1>
               <p className="mt-1 text-[13px] text-slate-500">Suivi des dossiers fiscaux et économies obtenues</p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-[13px] text-slate-600 shadow-sm">
                 <Calendar className="h-3.5 w-3.5 text-slate-400" />
                 <input type="date" value={periodFrom} onChange={(e) => setPeriodFrom(e.target.value)} className="w-28 outline-none text-[13px]" />
                 <span className="text-slate-400">→</span>
                 <input type="date" value={periodTo} onChange={(e) => setPeriodTo(e.target.value)} className="w-28 outline-none text-[13px]" />
               </div>
+              <button
+                onClick={() => setImportModalOpen(true)}
+                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-[13px] font-medium text-slate-600 shadow-sm hover:bg-slate-50"
+              >
+                <Upload className="h-4 w-4" />
+                Importer Excel
+              </button>
               <button onClick={handleExportCSV} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-[13px] font-medium text-slate-600 shadow-sm hover:bg-slate-50">
                 <Download className="h-4 w-4" />
                 Export CSV
@@ -1031,6 +1250,164 @@ export default function TableauDeBordPage() {
               <button onClick={handleDelete} className="rounded-lg bg-red-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-red-700">
                 Supprimer
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================== MODAL IMPORT EXCEL ===================== */}
+      {importModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <div>
+                <h2 className="text-[16px] font-bold text-slate-900">Importer des négociations</h2>
+                <p className="text-[12px] text-slate-400">Fichier Excel (.xlsx, .xls)</p>
+              </div>
+              <button onClick={closeImportModal} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+              {/* Étape 1 : dépôt de fichier */}
+              {!importRows.length && !importOutcomes && (
+                <>
+                  <div className="rounded-lg border-2 border-dashed border-slate-200 px-6 py-8 text-center">
+                    <FileSpreadsheet className="mx-auto mb-3 h-8 w-8 text-slate-300" />
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-[#0B3C53] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#0B3C53]/90">
+                      <Upload className="h-4 w-4" />
+                      Choisir un fichier
+                      <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportFile} />
+                    </label>
+                    {isParsingFile && (
+                      <p className="mt-3 flex items-center justify-center gap-2 text-[12px] text-slate-400">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Lecture du fichier…
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1.5 text-[12px] text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+                    <p>
+                      Colonnes attendues : Commune, Entreprise, Montant initial, Montant recalculé,
+                      Montant négocié (optionnel), Type action (optionnel), Date action (optionnel).
+                    </p>
+                    <button onClick={downloadImportTemplate} className="shrink-0 whitespace-nowrap font-semibold text-[#0B3C53] hover:underline">
+                      Télécharger le modèle
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* Étape 2 : aperçu / validation */}
+              {importRows.length > 0 && !importOutcomes && (
+                <>
+                  <div className="flex items-center gap-4 text-[13px]">
+                    <span className="flex items-center gap-1.5 font-semibold text-emerald-600">
+                      <CheckCircle2 className="h-4 w-4" />
+                      {importRows.filter((r) => r.errors.length === 0).length} lignes valides
+                    </span>
+                    <span className="flex items-center gap-1.5 font-semibold text-red-500">
+                      <XCircle className="h-4 w-4" />
+                      {importRows.filter((r) => r.errors.length > 0).length} lignes en erreur
+                    </span>
+                  </div>
+                  <div className="max-h-80 overflow-y-auto rounded-lg border border-slate-200">
+                    <table className="w-full text-[12px]">
+                      <thead className="sticky top-0 bg-slate-50 text-left uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="px-3 py-2">Ligne</th>
+                          <th className="px-3 py-2">Commune</th>
+                          <th className="px-3 py-2">Entreprise</th>
+                          <th className="px-3 py-2">Initial</th>
+                          <th className="px-3 py-2">Recalculé</th>
+                          <th className="px-3 py-2">Négocié</th>
+                          <th className="px-3 py-2">Statut</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importRows.map((r) => (
+                          <tr key={r.rowIndex} className={`border-t border-slate-100 ${r.errors.length ? "bg-red-50/50" : ""}`}>
+                            <td className="px-3 py-2 text-slate-400">{r.rowIndex}</td>
+                            <td className="px-3 py-2 font-medium text-slate-700">{r.commune || "—"}</td>
+                            <td className="px-3 py-2 text-slate-600">{r.entreprise || "—"}</td>
+                            <td className="px-3 py-2 text-slate-600">{formatNumber(r.montantInitial)}</td>
+                            <td className="px-3 py-2 text-slate-600">{formatNumber(r.montantRecalcule)}</td>
+                            <td className="px-3 py-2 text-slate-600">{r.montantNegocie ? formatNumber(r.montantNegocie) : "—"}</td>
+                            <td className="px-3 py-2">
+                              {r.errors.length === 0 ? (
+                                <span className="font-semibold text-emerald-600">OK</span>
+                              ) : (
+                                <span className="text-red-500" title={r.errors.join(", ")}>
+                                  {r.errors.join(", ")}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {importRows.some((r) => r.errors.length > 0) && (
+                    <p className="text-[12px] text-slate-500">
+                      Seules les lignes valides seront importées. Corrigez le fichier puis réimportez-le si besoin.
+                    </p>
+                  )}
+                </>
+              )}
+
+              {/* Étape 3 : résultat de l'import */}
+              {importOutcomes && (
+                <div className="space-y-3">
+                  <p className="text-[13px] font-semibold text-slate-700">
+                    {importOutcomes.filter((o) => o.success).length} dossier(s) créé(s) avec succès,{" "}
+                    {importOutcomes.filter((o) => !o.success).length} échec(s).
+                  </p>
+                  <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200">
+                    {importOutcomes.map((o) => (
+                      <div key={o.rowIndex} className="flex items-center gap-2 border-t border-slate-100 px-3 py-2 text-[12px] first:border-t-0">
+                        {o.success
+                          ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                          : <XCircle className="h-4 w-4 shrink-0 text-red-500" />}
+                        <span className="font-medium text-slate-700">Ligne {o.rowIndex} — {o.commune || "—"}</span>
+                        {!o.success && o.message && (
+                          <span className="text-red-500">({o.message})</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+              {importRows.length > 0 && !importOutcomes && (
+                <>
+                  <button
+                    onClick={() => setImportRows([])}
+                    className="rounded-lg border border-slate-200 px-4 py-2.5 text-[13px] font-medium text-slate-600 hover:bg-slate-50"
+                  >
+                    Choisir un autre fichier
+                  </button>
+                  <button
+                    onClick={handleConfirmImport}
+                    disabled={isImporting || importRows.every((r) => r.errors.length > 0)}
+                    className="flex items-center gap-2 rounded-lg bg-[#0B3C53] px-5 py-2.5 text-[13px] font-semibold text-white disabled:opacity-60"
+                  >
+                    {isImporting && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Importer {importRows.filter((r) => r.errors.length === 0).length} dossier(s)
+                  </button>
+                </>
+              )}
+              {importOutcomes && (
+                <button onClick={closeImportModal} className="rounded-lg bg-[#0B3C53] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#0B3C53]/90">
+                  Fermer
+                </button>
+              )}
+              {!importRows.length && !importOutcomes && (
+                <button onClick={closeImportModal} className="rounded-lg border border-slate-200 px-4 py-2.5 text-[13px] font-medium text-slate-600 hover:bg-slate-50">
+                  Annuler
+                </button>
+              )}
             </div>
           </div>
         </div>
