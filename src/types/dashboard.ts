@@ -114,7 +114,7 @@ export interface NegotiationsDashboardData {
 
 export type EtatSupport = "Bon" | "Défraichi" | "Détérioré";
 export type Visibilite = "Excellente" | "Bonne" | "Moyenne" | "Faible";
-export type Canal = "Affichage" | "Bâche" | "Panneau lumineux" | "Totem" | "Vitrine";
+export type Canal = "Affichage" | "Bâche" | "Panneau lumineux" | "Totem" | "Vitrine" | string;
 
 export interface SupportPublicitaire {
   id: string;
@@ -122,6 +122,7 @@ export interface SupportPublicitaire {
   marque: string;
   entreprise: string;
   agent: string;
+  agentNom?: string | null;
   // Localisation
   ville: string;
   commune: string;
@@ -168,13 +169,16 @@ export interface SupportPublicitaire {
   tauxCommune: boolean;
   tauxRegion: boolean;
   tauxDistrict: boolean;
-  // Médias
+  // Médias (4 images : 2 photos du support + 2 signatures)
   imageSupport: string | null;
   imageSupportSecondaire: string | null;
+  signatureResponsable: string | null;
+  signatureSignataire: string | null;
   // Métadonnées
-  dateCollecte: string; // ISO
-  updatedAt: string; // ISO
+  dateCollecte: string | null; // ISO
+  updatedAt: string | null; // ISO
   isDeleted: boolean;
+  pdvReference?: string | null;
 }
 
 export interface SupportsFilters {

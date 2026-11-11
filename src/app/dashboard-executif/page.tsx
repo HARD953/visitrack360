@@ -247,8 +247,8 @@ const NAV_SECTIONS = [
   {
     label: "Administration",
     items: [
-      { label: "Agents recenseurs", href: "/agents-recenseurs", icon: Users },
-      { label: "Paramètres", href: "/parametres", icon: Settings },
+      // { label: "Agents recenseurs", href: "/agents-recenseurs", icon: Users },
+      // { label: "Paramètres", href: "/parametres", icon: Settings },
       { label: "Administration", href: "/administration", icon: ShieldCheck },
     ],
   },

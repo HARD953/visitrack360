@@ -15,7 +15,7 @@ import { useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Image as ImageIcon,
-  Map,
+  Map as MapIcon,
   LineChart as LineChartIcon,
   Receipt,
   FileBarChart,
@@ -52,6 +52,10 @@ import {
   Radar,
   Layers,
   Info,
+  PenTool,
+  Wallet,
+  ArrowLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiFetch, getAccessToken } from "@/lib/api/client";
@@ -86,6 +90,7 @@ interface Support {
   entreprise_rel: number | null;
   agent: number | null;
   agentNom: string | null;
+  pdvReference: string;
   ville: string;
   commune: string;
   region: string;
@@ -128,8 +133,11 @@ interface Support {
   tauxDistrict: boolean;
   imageSupport: string | null;
   imageSupportSecondaire: string | null;
-  dateCollecte: string;
-  updatedAt: string;
+  // Les 2 signatures renvoyées par le backend ("signature" / "signature1")
+  signatureResponsable: string | null;
+  signatureSignataire: string | null;
+  dateCollecte: string | null;
+  updatedAt: string | null;
   isDeleted: boolean;
 }
 
@@ -208,20 +216,193 @@ interface ToastState {
   message: string;
 }
 
+// Un PDV (point de vente) regroupe tous les supports qui partagent le même
+// `pdv_reference`. C'est purement un regroupement d'affichage côté front :
+// chaque support reste une ligne indépendante en base (le modèle Django ne
+// synchronise pas automatiquement les infos PDV entre supports liés).
+interface PdvGroup {
+  key: string;
+  pdvReference: string;
+  hasPdvReference: boolean;
+  marque: string;
+  nomSite: string;
+  ville: string;
+  commune: string;
+  region: string;
+  district: string;
+  village: string;
+  quartier: string;
+  latitude: number | null;
+  longitude: number | null;
+  responsableNom: string;
+  responsablePrenom: string;
+  responsableContact: string;
+  supports: Support[];
+  nombreSupportsActifs: number;
+  totalTSP: number;
+  totalODPValue: number;
+  totalSurface: number;
+  etatCounts: Record<string, number>;
+  lastCollecte: string | null;
+  lastUpdated: string | null;
+  primaryImage: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Normalisation API <-> Frontend
+// ---------------------------------------------------------------------------
+// Confirmé contre le modèle Django `DonneeCollectee` : le serializer DRF
+// (ModelSerializer, fields = "__all__") expose les noms de champs EXACTS du
+// modèle, qui ne sont pas en camelCase homogène : "Marque", "nomsite",
+// "type_support", "typesite", "Rnom"/"Rprenom"/"Rcontact" (responsable),
+// "Snom"/"Sprenom"/"Scontact" (signataire), "TSP", "ODP", "AP"/"APA"/"APT"/
+// "AE"/"AEA"/"AET", "image_support", "image_support_s", "signature",
+// "signature1", "date_collecte", "updated_at", "is_deleted", "pdv_reference"…
+// C'est cette incohérence de nommage qui faisait que la requête réussissait
+// mais que la moitié des champs arrivaient "undefined" côté React.
+// normalizeSupport() fait le pont une bonne fois pour toutes.
+// ---------------------------------------------------------------------------
+
+function toBool(v: unknown): boolean {
+  return v === true || v === "true" || v === 1 || v === "1";
+}
+
+function toNum(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isNaN(n) ? null : n;
+}
+
+function normalizeSupport(raw: any): Support {
+  return {
+    id: raw.id,
+    marque: raw.Marque ?? raw.marque ?? "",
+    entreprise: raw.entreprise ?? "",
+    entreprise_rel: raw.entreprise_rel ?? null,
+    agent: raw.agent ?? null,
+    agentNom: raw.agentNom ?? raw.agent_nom ?? null,
+    pdvReference: raw.pdv_reference ?? raw.pdvReference ?? "",
+    ville: raw.ville ?? "",
+    commune: raw.commune ?? "",
+    region: raw.region ?? "",
+    district: raw.district ?? "",
+    village: raw.village ?? "",
+    quartier: raw.quartier ?? "",
+    nomSite: raw.nomsite ?? raw.nomSite ?? "",
+    latitude: toNum(raw.latitude),
+    longitude: toNum(raw.longitude),
+    typeSupport: raw.type_support ?? raw.typeSupport ?? "",
+    surface: toNum(raw.surface),
+    nombreSupport: toNum(raw.nombre_support ?? raw.nombreSupport) ?? 0,
+    nombreFace: toNum(raw.nombre_face ?? raw.nombreFace) ?? 0,
+    surfaceODP: toNum(raw.surfaceODP ?? raw.surface_odp) ?? 0,
+    canal: raw.canal ?? "",
+    etatSupport: raw.etat_support ?? raw.etatSupport ?? "",
+    typeSite: raw.typesite ?? raw.typeSite ?? "",
+    visibilite: raw.visibilite ?? "",
+    description: raw.description ?? "",
+    observation: raw.observation ?? "",
+    responsableNom: raw.Rnom ?? raw.responsableNom ?? "",
+    responsablePrenom: raw.Rprenom ?? raw.responsablePrenom ?? "",
+    responsableContact: raw.Rcontact ?? raw.responsableContact ?? "",
+    signataireNom: raw.Snom ?? raw.signataireNom ?? "",
+    signatairePrenom: raw.Sprenom ?? raw.signatairePrenom ?? "",
+    signataireContact: raw.Scontact ?? raw.signataireContact ?? "",
+    duree: toNum(raw.duree),
+    anciennete: toBool(raw.anciennete),
+    tsp: toNum(raw.TSP ?? raw.tsp),
+    odp: toBool(raw.ODP ?? raw.odp),
+    odpValue: toNum(raw.ODP_value ?? raw.odpValue),
+    ap: toBool(raw.AP ?? raw.ap),
+    apa: toBool(raw.APA ?? raw.apa),
+    apt: toBool(raw.APT ?? raw.apt),
+    ae: toBool(raw.AE ?? raw.ae),
+    aea: toBool(raw.AEA ?? raw.aea),
+    aet: toBool(raw.AET ?? raw.aet),
+    tauxCommune: toBool(raw.tauxCommune),
+    tauxRegion: toBool(raw.tauxRegion),
+    tauxDistrict: toBool(raw.tauxDistrict),
+    imageSupport: raw.image_support ?? raw.imageSupport ?? null,
+    imageSupportSecondaire: raw.image_support_s ?? raw.imageSupportSecondaire ?? null,
+    signatureResponsable: raw.signature ?? raw.signatureResponsable ?? null,
+    signatureSignataire: raw.signature1 ?? raw.signatureSignataire ?? null,
+    dateCollecte: raw.date_collecte ?? raw.dateCollecte ?? raw.create ?? null,
+    updatedAt: raw.updated_at ?? raw.updatedAt ?? null,
+    isDeleted: toBool(raw.is_deleted ?? raw.isDeleted),
+  };
+}
+
+// Clés backend utilisées pour l'écriture (POST / PATCH) — doivent matcher
+// exactement les noms de champs du modèle Django (cf. serializer `fields = "__all__"`).
+const TEXT_FIELD_TO_BACKEND: Record<string, string> = {
+  marque: "Marque",
+  entreprise: "entreprise",
+  pdvReference: "pdv_reference",
+  ville: "ville",
+  commune: "commune",
+  region: "region",
+  district: "district",
+  village: "village",
+  quartier: "quartier",
+  nomSite: "nomsite",
+  typeSupport: "type_support",
+  canal: "canal",
+  etatSupport: "etat_support",
+  typeSite: "typesite",
+  visibilite: "visibilite",
+  description: "description",
+  observation: "observation",
+  responsableNom: "Rnom",
+  responsablePrenom: "Rprenom",
+  responsableContact: "Rcontact",
+  signataireNom: "Snom",
+  signatairePrenom: "Sprenom",
+  signataireContact: "Scontact",
+};
+
+const NUM_FIELD_TO_BACKEND: Record<string, string> = {
+  surface: "surface",
+  duree: "duree",
+  tsp: "TSP",
+  odpValue: "ODP_value",
+  latitude: "latitude",
+  longitude: "longitude",
+};
+
+const BOOL_FIELD_TO_BACKEND: Record<string, string> = {
+  anciennete: "anciennete",
+  odp: "ODP",
+  ap: "AP",
+  apa: "APA",
+  apt: "APT",
+  ae: "AE",
+  aea: "AEA",
+  aet: "AET",
+  tauxCommune: "tauxCommune",
+  tauxRegion: "tauxRegion",
+  tauxDistrict: "tauxDistrict",
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("fr-FR", {
+function formatDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("fr-FR", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
   });
 }
 
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleDateString("fr-FR", {
+function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("fr-FR", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -232,6 +413,16 @@ function formatDateTime(iso: string): string {
 
 function formatNumber(v: number): string {
   return new Intl.NumberFormat("fr-FR").format(v);
+}
+
+function formatFCFA(v: number): string {
+  return `${formatNumber(Math.round(v))} FCFA`;
+}
+
+function latestIso(a: string | null, b: string | null | undefined): string | null {
+  if (!b) return a;
+  if (!a) return b;
+  return new Date(b) > new Date(a) ? b : a;
 }
 
 const ETAT_BADGE: Record<string, string> = {
@@ -265,13 +456,18 @@ function imageUrl(path: string | null | undefined): string | null {
 // Formulaire vide par défaut
 // ---------------------------------------------------------------------------
 
-function emptyForm(): Partial<Support> & {
+type SupportFormState = Partial<Support> & {
   imageSupportFile: File | null;
   imageSupportSecondaireFile: File | null;
-} {
+  signatureFile: File | null;
+  signature1File: File | null;
+};
+
+function emptyForm(prefill?: Partial<Support>): SupportFormState {
   return {
     marque: "",
     entreprise: "",
+    pdvReference: "",
     ville: "Abidjan",
     commune: "",
     region: "Abidjan",
@@ -314,6 +510,9 @@ function emptyForm(): Partial<Support> & {
     tauxDistrict: false,
     imageSupportFile: null,
     imageSupportSecondaireFile: null,
+    signatureFile: null,
+    signature1File: null,
+    ...prefill,
   };
 }
 
@@ -333,7 +532,7 @@ const NAV_SECTIONS = [
     label: "Opérations",
     items: [
       { label: "Supports publicitaires", href: "/supports-publicitaires", icon: ImageIcon },
-      { label: "Carte des supports", href: "/carte-des-supports", icon: Map },
+      { label: "Carte des supports", href: "/carte-des-supports", icon: MapIcon },
       { label: "Analyse fiscale", href: "/analyse-fiscale", icon: LineChartIcon },
       { label: "Ordres de recettes", href: "/ordres-de-recettes", icon: Receipt },
       { label: "Rapports & exports", href: "/rapports-exports", icon: FileBarChart },
@@ -392,6 +591,7 @@ function TextInput({
   placeholder = "",
   required = false,
   error,
+  disabled = false,
 }: {
   value: string | number | null;
   onChange: (v: string) => void;
@@ -399,6 +599,7 @@ function TextInput({
   placeholder?: string;
   required?: boolean;
   error?: string;
+  disabled?: boolean;
 }) {
   return (
     <input
@@ -407,7 +608,8 @@ function TextInput({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       required={required}
-      className={`w-full rounded-lg border ${error ? "border-red-300" : "border-slate-200"} px-3 py-2 text-[13px] text-slate-800 outline-none transition-colors focus:border-[#0B3C53] focus:ring-1 focus:ring-[#0B3C53]/20`}
+      disabled={disabled}
+      className={`w-full rounded-lg border ${error ? "border-red-300" : "border-slate-200"} px-3 py-2 text-[13px] text-slate-800 outline-none transition-colors focus:border-[#0B3C53] focus:ring-1 focus:ring-[#0B3C53]/20 disabled:bg-slate-50 disabled:text-slate-400`}
     />
   );
 }
@@ -506,6 +708,31 @@ function DetailTag({ active, label }: { active: boolean; label: string }) {
   );
 }
 
+// Petite carte KPI réutilisable
+function KpiTile({
+  label,
+  value,
+  icon: Icon,
+  badge,
+}: {
+  label: string;
+  value: string;
+  icon: any;
+  badge: string;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+        <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${badge}`}>
+          <Icon className="h-4 w-4 text-white" />
+        </div>
+      </div>
+      <p className="text-2xl font-bold tabular-nums text-slate-900">{value}</p>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Toasts
 // ---------------------------------------------------------------------------
@@ -552,10 +779,12 @@ function ImageUploadField({
   label,
   currentUrl,
   onFileSelect,
+  compact = false,
 }: {
   label: string;
   currentUrl: string | null;
   onFileSelect: (file: File | null) => void;
+  compact?: boolean;
 }) {
   const [preview, setPreview] = useState<string | null>(currentUrl);
   const [showCamera, setShowCamera] = useState(false);
@@ -617,6 +846,8 @@ function ImageUploadField({
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
+  const previewHeight = compact ? "h-28" : "h-40";
+
   return (
     <div>
       <label className="mb-1.5 block text-[12px] font-medium text-slate-500">
@@ -651,8 +882,8 @@ function ImageUploadField({
           </div>
         </div>
       ) : preview ? (
-        <div className="group relative overflow-hidden rounded-lg border border-slate-200">
-          <img src={preview} alt="Aperçu" className="h-40 w-full object-cover" />
+        <div className="group relative overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <img src={preview} alt="Aperçu" className={`${previewHeight} w-full object-contain`} />
           <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
           <button
             type="button"
@@ -670,7 +901,7 @@ function ImageUploadField({
             className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 py-4 text-[13px] font-medium text-slate-500 transition-colors hover:border-[#0B3C53] hover:bg-slate-100"
           >
             <Upload className="h-4 w-4" />
-            Importer un fichier
+            Importer
           </button>
           <button
             type="button"
@@ -735,11 +966,14 @@ export default function SupportsPublicitairesPage() {
   // Modal CRUD
   const [modalOpen, setModalOpen] = useState(false);
   const [editingSupport, setEditingSupport] = useState<Support | null>(null);
-  const [form, setForm] = useState(emptyForm());
+  const [form, setForm] = useState<SupportFormState>(emptyForm());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
-  // Modal détail (lecture seule)
+  // Fiche PDV (drill-down niveau 1 : tous les supports d'un même point de vente)
+  const [pdvDetailKey, setPdvDetailKey] = useState<string | null>(null);
+
+  // Modal détail support (lecture seule, drill-down niveau 2)
   const [detailTarget, setDetailTarget] = useState<Support | null>(null);
 
   // Modal import en masse
@@ -858,6 +1092,17 @@ export default function SupportsPublicitairesPage() {
     return visibilites.map((v) => ({ value: v.visibilite, label: v.visibilite }));
   }, [visibilites]);
 
+  // Résout le nom d'un agent à partir de son id, en secours si le backend
+  // ne renvoie pas directement "agentNom" sur le support.
+  const getAgentName = useCallback(
+    (s: Support): string => {
+      if (s.agentNom) return s.agentNom;
+      const a = agents.find((ag) => ag.id === s.agent);
+      return a ? a.nomComplet || `${a.prenom} ${a.nom}` : "";
+    },
+    [agents]
+  );
+
   // Charger les filtres disponibles (pour le composant existant)
   useEffect(() => {
     if (!user) return;
@@ -891,16 +1136,13 @@ export default function SupportsPublicitairesPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await apiFetch<PaginatedResponse<Support> | Support[]>(
+      const data = await apiFetch<PaginatedResponse<any> | any[]>(
         `/api/supports/?${queryString}`
       );
-      if (Array.isArray(data)) {
-        setSupports(data);
-        setTotal(data.length);
-      } else {
-        setSupports(data.results);
-        setTotal(data.count);
-      }
+      const rawList = Array.isArray(data) ? data : data.results;
+      const normalized = rawList.map(normalizeSupport);
+      setSupports(normalized);
+      setTotal(Array.isArray(data) ? normalized.length : data.count);
     } catch {
       setError("Impossible de charger les supports.");
     } finally {
@@ -912,16 +1154,98 @@ export default function SupportsPublicitairesPage() {
     loadSupports();
   }, [loadSupports]);
 
+  // =========================================================================
+  // Regroupement par PDV (pdv_reference)
+  // =========================================================================
+  // Les supports qui partagent le même pdv_reference sont regroupés en une
+  // seule "fiche PDV". Un support sans pdv_reference (cas normalement rare,
+  // le backend en génère un automatiquement à la création) devient sa propre
+  // fiche isolée, pour ne rien perdre à l'affichage.
+  const pdvGroups = useMemo<PdvGroup[]>(() => {
+    const map = new Map<string, Support[]>();
+    supports.forEach((s) => {
+      const key = s.pdvReference && s.pdvReference.trim() ? s.pdvReference : `__isole_${s.id}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(s);
+    });
+
+    const groups: PdvGroup[] = Array.from(map.entries()).map(([key, list]) => {
+      const actifs = list.filter((s) => !s.isDeleted);
+      const ref = list[0];
+      const totalTSP = actifs.reduce((sum, s) => sum + (s.tsp ?? 0), 0);
+      const totalODPValue = actifs.reduce((sum, s) => sum + (s.odpValue ?? 0), 0);
+      const totalSurface = actifs.reduce((sum, s) => sum + (s.surface ?? 0), 0);
+      const etatCounts: Record<string, number> = {};
+      actifs.forEach((s) => {
+        const etat = s.etatSupport || "Non renseigné";
+        etatCounts[etat] = (etatCounts[etat] ?? 0) + 1;
+      });
+      let lastCollecte: string | null = null;
+      let lastUpdated: string | null = null;
+      list.forEach((s) => {
+        lastCollecte = latestIso(lastCollecte, s.dateCollecte);
+        lastUpdated = latestIso(lastUpdated, s.updatedAt);
+      });
+      const withImage = list.find((s) => s.imageSupport);
+
+      return {
+        key,
+        pdvReference: ref.pdvReference || "",
+        hasPdvReference: !!(ref.pdvReference && ref.pdvReference.trim()),
+        marque: ref.marque,
+        nomSite: ref.nomSite,
+        ville: ref.ville,
+        commune: ref.commune,
+        region: ref.region,
+        district: ref.district,
+        village: ref.village,
+        quartier: ref.quartier,
+        latitude: ref.latitude,
+        longitude: ref.longitude,
+        responsableNom: ref.responsableNom,
+        responsablePrenom: ref.responsablePrenom,
+        responsableContact: ref.responsableContact,
+        supports: list,
+        nombreSupportsActifs: actifs.length,
+        totalTSP,
+        totalODPValue,
+        totalSurface,
+        etatCounts,
+        lastCollecte,
+        lastUpdated,
+        primaryImage: withImage ? withImage.imageSupport : null,
+      };
+    });
+
+    // PDV les plus récemment mis à jour en premier
+    groups.sort((a, b) => {
+      const da = a.lastUpdated ? new Date(a.lastUpdated).getTime() : 0;
+      const db = b.lastUpdated ? new Date(b.lastUpdated).getTime() : 0;
+      return db - da;
+    });
+
+    return groups;
+  }, [supports]);
+
+  // Fiche PDV actuellement ouverte, calculée en direct depuis pdvGroups
+  // (donc toujours à jour après un ajout/édition/suppression de support).
+  const openPdvGroup = useMemo(
+    () => pdvGroups.find((g) => g.key === pdvDetailKey) ?? null,
+    [pdvGroups, pdvDetailKey]
+  );
+
   // KPIs rapides
   const kpis = useMemo(() => {
     const actifs = supports.filter((s) => !s.isDeleted);
     return {
-      total: actifs.length,
+      totalSupports: actifs.length,
+      totalPdv: pdvGroups.length,
       bons: actifs.filter((s) => s.etatSupport === "Bon").length,
       deteriores: actifs.filter((s) => s.etatSupport === "Détérioré").length,
-      surface: actifs.reduce((sum, s) => sum + (s.surface ?? 0), 0),
+      totalTSP: actifs.reduce((sum, s) => sum + (s.tsp ?? 0), 0),
+      totalODP: actifs.reduce((sum, s) => sum + (s.odpValue ?? 0), 0),
     };
-  }, [supports]);
+  }, [supports, pdvGroups]);
 
   // Données formatées pour la carte : on résout les URLs d'images en amont
   // (l'API renvoie des chemins relatifs, ex. "/media/..." — sans BASE_URL
@@ -931,14 +1255,16 @@ export default function SupportsPublicitairesPage() {
       ...s,
       id: String(s.id),
       agent: s.agent != null ? String(s.agent) : "",
-      agentNom: s.agentNom ?? "",
+      agentNom: getAgentName(s),
       etatSupport: s.etatSupport as EtatSupport,
       canal: s.canal as Canal,
       visibilite: (s.visibilite || "Moyenne") as Visibilite,
       imageSupport: imageUrl(s.imageSupport),
       imageSupportSecondaire: imageUrl(s.imageSupportSecondaire),
+      signatureResponsable: imageUrl(s.signatureResponsable),
+      signatureSignataire: imageUrl(s.signatureSignataire),
     })) as unknown as SupportPublicitaire[];
-  }, [supports]);
+  }, [supports, getAgentName]);
 
   // ---------------------------------------------------------------------------
   // CRUD handlers
@@ -951,9 +1277,42 @@ export default function SupportsPublicitairesPage() {
     setModalOpen(true);
   }
 
+  // Ouvre le formulaire de création pré-rempli avec les infos partagées d'un
+  // PDV existant (utilisé depuis la fiche PDV, bouton "Ajouter un support").
+  function openCreateForPdv(group: PdvGroup) {
+    setEditingSupport(null);
+    setForm(
+      emptyForm({
+        pdvReference: group.pdvReference,
+        marque: group.marque,
+        entreprise: group.supports[0]?.entreprise ?? "",
+        ville: group.ville,
+        commune: group.commune,
+        region: group.region,
+        district: group.district,
+        village: group.village,
+        quartier: group.quartier,
+        nomSite: group.nomSite,
+        latitude: group.latitude,
+        longitude: group.longitude,
+        responsableNom: group.responsableNom,
+        responsablePrenom: group.responsablePrenom,
+        responsableContact: group.responsableContact,
+      })
+    );
+    setValidationErrors({});
+    setModalOpen(true);
+  }
+
   function openEdit(s: Support) {
     setEditingSupport(s);
-    setForm({ ...s, imageSupportFile: null, imageSupportSecondaireFile: null });
+    setForm({
+      ...s,
+      imageSupportFile: null,
+      imageSupportSecondaireFile: null,
+      signatureFile: null,
+      signature1File: null,
+    });
     setValidationErrors({});
     setDetailTarget(null);
     setModalOpen(true);
@@ -991,40 +1350,31 @@ export default function SupportsPublicitairesPage() {
     try {
       const fd = new FormData();
 
-      const requiredTextFields = [
-        "marque","entreprise","ville","commune","region","district",
-        "village","quartier","nomSite","typeSupport","canal","etatSupport",
-        "typeSite","visibilite","description","observation",
-        "responsableNom","responsablePrenom","responsableContact",
-        "signataireNom","signatairePrenom","signataireContact",
-      ];
-      requiredTextFields.forEach((k) => {
-        const v = form[k as keyof typeof form];
-        if (v !== null && v !== undefined && v !== "") fd.append(k, String(v));
+      // Champs texte : on envoie les clés EXACTES attendues par le backend
+      // (ex: "marque" -> "Marque", "nomSite" -> "nomsite", etc.)
+      Object.entries(TEXT_FIELD_TO_BACKEND).forEach(([formKey, backendKey]) => {
+        const v = form[formKey as keyof typeof form];
+        if (v !== null && v !== undefined && v !== "") fd.append(backendKey, String(v));
       });
 
-      fd.append("nombreSupport", String(form.nombreSupport || 1));
-      fd.append("nombreFace", String(form.nombreFace || 1));
-      fd.append("surfaceODP", String(form.surfaceODP || 0));
+      fd.append("nombre_support", String(form.nombreSupport || 1));
+      fd.append("nombre_face", String(form.nombreFace || 1));
+      fd.append("surfaceODP", String(form.surfaceODP ?? 0));
 
-      const numFields: (keyof typeof form)[] = [
-        "surface","duree","tsp","odpValue","latitude","longitude",
-      ];
-      numFields.forEach((k) => {
-        const v = form[k];
-        if (v !== null && v !== undefined && v !== "") fd.append(k as string, String(v));
+      Object.entries(NUM_FIELD_TO_BACKEND).forEach(([formKey, backendKey]) => {
+        const v = form[formKey as keyof typeof form];
+        if (v !== null && v !== undefined && v !== "") fd.append(backendKey, String(v));
       });
 
-      const boolFields: (keyof typeof form)[] = [
-        "anciennete","odp","ap","apa","apt","ae","aea","aet",
-        "tauxCommune","tauxRegion","tauxDistrict",
-      ];
-      boolFields.forEach((k) => {
-        fd.append(k as string, form[k] ? "true" : "false");
+      Object.entries(BOOL_FIELD_TO_BACKEND).forEach(([formKey, backendKey]) => {
+        fd.append(backendKey, form[formKey as keyof typeof form] ? "true" : "false");
       });
 
+      // Les 4 images : 2 photos du support + 2 signatures
       if (form.imageSupportFile) fd.append("image_support", form.imageSupportFile);
       if (form.imageSupportSecondaireFile) fd.append("image_support_s", form.imageSupportSecondaireFile);
+      if (form.signatureFile) fd.append("signature", form.signatureFile);
+      if (form.signature1File) fd.append("signature1", form.signature1File);
 
       const token = getAccessToken();
       const headers: Record<string, string> = {};
@@ -1052,7 +1402,8 @@ export default function SupportsPublicitairesPage() {
         throw new Error("Erreur serveur");
       }
 
-      const saved: Support = await res.json();
+      const savedRaw = await res.json();
+      const saved = normalizeSupport(savedRaw);
       if (editingSupport) {
         setSupports((prev) => prev.map((s) => (s.id === saved.id ? saved : s)));
         showToast("success", `Le support « ${saved.marque} » a été mis à jour.`);
@@ -1060,6 +1411,9 @@ export default function SupportsPublicitairesPage() {
         setSupports((prev) => [saved, ...prev]);
         setTotal((t) => t + 1);
         showToast("success", `Le support « ${saved.marque} » a été créé.`);
+        // Si le support vient d'être rattaché à un PDV existant, on ouvre
+        // directement sa fiche pour que l'utilisateur voie le résultat.
+        if (saved.pdvReference) setPdvDetailKey(saved.pdvReference);
       }
       setModalOpen(false);
       setValidationErrors({});
@@ -1205,7 +1559,7 @@ export default function SupportsPublicitairesPage() {
             <div className="border-l-4 border-[#0B3C53] pl-3">
               <h1 className="text-2xl font-bold text-slate-900">Supports publicitaires</h1>
               <p className="mt-1 text-[13px] text-slate-500">
-                Recensement, état et fiscalité des supports terrain
+                Recensement par point de vente (PDV), état et fiscalité des supports terrain
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -1256,33 +1610,13 @@ export default function SupportsPublicitairesPage() {
           </div>
 
           {/* KPIs rapides */}
-          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-            {[
-              { label: "Supports actifs", value: kpis.total, icon: Boxes, badge: "bg-violet-500" },
-              { label: "En bon état", value: kpis.bons, icon: CheckCircle2, badge: "bg-emerald-500" },
-              { label: "À traiter", value: kpis.deteriores, icon: XCircle, badge: "bg-red-500" },
-              { label: "Surface totale (m²)", value: kpis.surface, icon: SlidersHorizontal, badge: "bg-cyan-500" },
-            ].map((kpi) => {
-              const Icon = kpi.icon;
-              return (
-                <div
-                  key={kpi.label}
-                  className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
-                >
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                      {kpi.label}
-                    </p>
-                    <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${kpi.badge}`}>
-                      <Icon className="h-4 w-4 text-white" />
-                    </div>
-                  </div>
-                  <p className="text-2xl font-bold tabular-nums text-slate-900">
-                    {formatNumber(kpi.value)}
-                  </p>
-                </div>
-              );
-            })}
+          <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+            <KpiTile label="Points de vente (PDV)" value={formatNumber(kpis.totalPdv)} icon={Building2} badge="bg-[#0B3C53]" />
+            <KpiTile label="Supports actifs" value={formatNumber(kpis.totalSupports)} icon={Boxes} badge="bg-violet-500" />
+            <KpiTile label="En bon état" value={formatNumber(kpis.bons)} icon={CheckCircle2} badge="bg-emerald-500" />
+            <KpiTile label="À traiter" value={formatNumber(kpis.deteriores)} icon={XCircle} badge="bg-red-500" />
+            <KpiTile label="TSP total" value={formatFCFA(kpis.totalTSP)} icon={Receipt} badge="bg-cyan-500" />
+            <KpiTile label="Valeur ODP totale" value={formatFCFA(kpis.totalODP)} icon={Wallet} badge="bg-amber-500" />
           </div>
 
           {/* Filtres - Utilisation des options chargées depuis les endpoints */}
@@ -1445,54 +1779,44 @@ export default function SupportsPublicitairesPage() {
             </div>
           )}
 
-          {/* Vue liste */}
+          {/* Vue liste — regroupée par PDV */}
           {!isLoading && !error && viewMode === "liste" && (
             <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
               <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
                 <p className="text-[13px] font-medium text-slate-500">
-                  {total} support{total > 1 ? "s" : ""} trouvé{total > 1 ? "s" : ""}
+                  {pdvGroups.length} point{pdvGroups.length > 1 ? "s" : ""} de vente · {total} support{total > 1 ? "s" : ""} au total
                 </p>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[980px] border-collapse text-sm">
+                <table className="w-full min-w-[1080px] border-collapse text-sm">
                   <thead className="sticky top-0 z-10">
                     <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                       <th className="px-4 py-2.5">Photo</th>
-                      <th className="px-3 py-2.5">Marque / Site</th>
-                      <th className="px-3 py-2.5">Type</th>
+                      <th className="px-3 py-2.5">PDV / Marque / Site</th>
                       <th className="px-3 py-2.5">Commune</th>
-                      <th className="px-3 py-2.5">Surface</th>
-                      <th className="px-3 py-2.5">Faces</th>
-                      <th className="px-3 py-2.5">État</th>
-                      <th className="px-3 py-2.5">Visibilité</th>
-                      <th className="px-3 py-2.5">Agent</th>
-                      <th className="px-3 py-2.5">Date collecte</th>
+                      <th className="px-3 py-2.5">Supports</th>
+                      <th className="px-3 py-2.5">TSP total</th>
+                      <th className="px-3 py-2.5">Valeur ODP totale</th>
+                      <th className="px-3 py-2.5">États</th>
+                      <th className="px-3 py-2.5">Responsable</th>
+                      <th className="px-3 py-2.5">Dernière collecte</th>
                       <th className="px-3 py-2.5 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {supports.map((s) => {
-                      const imgUrl = imageUrl(s.imageSupport);
+                    {pdvGroups.map((g) => {
+                      const imgUrl = imageUrl(g.primaryImage);
                       return (
                         <tr
-                          key={s.id}
-                          className="border-b border-slate-100 last:border-0 transition-colors hover:bg-slate-50"
+                          key={g.key}
+                          onClick={() => setPdvDetailKey(g.key)}
+                          className="cursor-pointer border-b border-slate-100 last:border-0 transition-colors hover:bg-slate-50"
                         >
                           <td className="px-4 py-2.5">
                             {imgUrl ? (
-                              <button
-                                onClick={() => setLightboxUrl(imgUrl)}
-                                className="group relative h-12 w-12 overflow-hidden rounded-lg border border-slate-200"
-                              >
-                                <img
-                                  src={imgUrl}
-                                  alt="Support"
-                                  className="h-full w-full object-cover transition group-hover:scale-110"
-                                />
-                                <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/30">
-                                  <Eye className="h-4 w-4 text-white opacity-0 transition group-hover:opacity-100" />
-                                </div>
-                              </button>
+                              <div className="h-12 w-12 overflow-hidden rounded-lg border border-slate-200">
+                                <img src={imgUrl} alt={g.marque} className="h-full w-full object-cover" />
+                              </div>
                             ) : (
                               <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-slate-100 bg-slate-50 text-slate-300">
                                 <ImageIcon className="h-5 w-5" />
@@ -1500,62 +1824,70 @@ export default function SupportsPublicitairesPage() {
                             )}
                           </td>
                           <td className="px-3 py-2.5">
-                            <button
-                              onClick={() => openDetail(s)}
-                              className="text-left hover:underline decoration-[#0B3C53]/40 underline-offset-2"
-                            >
-                              <p className="font-semibold text-slate-800">{s.marque}</p>
-                              <p className="text-[12px] text-slate-400">{s.nomSite}</p>
-                            </button>
+                            <p className="font-semibold text-slate-800">{g.marque || "—"}</p>
+                            <p className="text-[12px] text-slate-400">
+                              {g.nomSite || "Site non renseigné"}
+                              {g.hasPdvReference && (
+                                <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+                                  {g.pdvReference}
+                                </span>
+                              )}
+                              {!g.hasPdvReference && (
+                                <span className="ml-1.5 italic text-slate-300">non rattaché</span>
+                              )}
+                            </p>
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{s.typeSupport || "—"}</td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{s.commune}</td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{s.surface ? `${s.surface} m²` : "—"}</td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{s.nombreFace ?? "—"}</td>
-                          <td className="whitespace-nowrap px-3 py-2.5">
-                            <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold ${ETAT_BADGE[s.etatSupport] ?? "bg-slate-100 text-slate-600"}`}>
-                              <span className={`h-1.5 w-1.5 rounded-full ${ETAT_DOT[s.etatSupport] ?? "bg-slate-400"}`} />
-                              {s.etatSupport}
-                            </span>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">
+                            {g.commune}{g.quartier ? ` · ${g.quartier}` : ""}
                           </td>
                           <td className="whitespace-nowrap px-3 py-2.5">
-                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${VISIBILITE_BADGE[s.visibilite] ?? "bg-slate-100 text-slate-600"}`}>
-                              {s.visibilite || "—"}
+                            <span className="inline-flex items-center gap-1 rounded-full bg-[#0B3C53]/10 px-2 py-0.5 text-[11px] font-bold text-[#0B3C53]">
+                              <Boxes className="h-3 w-3" />
+                              {g.nombreSupportsActifs}
                             </span>
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-[12px] text-slate-500">{s.agentNom ?? "—"}</td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-[12px] text-slate-500">{formatDate(s.dateCollecte)}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-700">{formatFCFA(g.totalTSP)}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-700">{formatFCFA(g.totalODPValue)}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5">
+                            <div className="flex flex-wrap gap-1">
+                              {Object.entries(g.etatCounts).map(([etat, count]) => (
+                                <span
+                                  key={etat}
+                                  className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${ETAT_BADGE[etat] ?? "bg-slate-100 text-slate-600"}`}
+                                >
+                                  <span className={`h-1 w-1 rounded-full ${ETAT_DOT[etat] ?? "bg-slate-400"}`} />
+                                  {count}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-[12px] text-slate-500">
+                            {g.responsableNom || g.responsablePrenom
+                              ? `${g.responsablePrenom} ${g.responsableNom}`
+                              : "—"}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-[12px] text-slate-500">{formatDate(g.lastCollecte)}</td>
                           <td className="px-3 py-2.5">
                             <div className="flex items-center justify-end gap-1">
                               <button
-                                onClick={() => openDetail(s)}
-                                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-[#0B3C53]"
-                                title="Voir les détails"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPdvDetailKey(g.key);
+                                }}
+                                className="flex items-center gap-1 rounded-md px-2 py-1.5 text-[12px] font-semibold text-[#0B3C53] transition-colors hover:bg-[#0B3C53]/10"
+                                title="Voir les supports de ce PDV"
                               >
-                                <Eye className="h-4 w-4" />
-                              </button>
-                              <button
-                                onClick={() => openEdit(s)}
-                                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
-                                title="Modifier"
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </button>
-                              <button
-                                onClick={() => setDeleteTarget(s)}
-                                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
-                                title="Supprimer"
-                              >
-                                <Trash2 className="h-4 w-4" />
+                                Voir
+                                <ChevronRight className="h-3.5 w-3.5" />
                               </button>
                             </div>
                           </td>
                         </tr>
                       );
                     })}
-                    {supports.length === 0 && !isLoading && (
+                    {pdvGroups.length === 0 && !isLoading && (
                       <tr>
-                        <td colSpan={11} className="px-5 py-16 text-center">
+                        <td colSpan={10} className="px-5 py-16 text-center">
                           <div className="mx-auto flex max-w-xs flex-col items-center gap-3">
                             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-50 text-slate-300">
                               <Search className="h-5 w-5" />
@@ -1583,7 +1915,7 @@ export default function SupportsPublicitairesPage() {
             </div>
           )}
 
-          {/* Vue carte */}
+          {/* Vue carte — un point par support */}
           {!isLoading && !error && viewMode === "carte" && (
             <div className="h-[580px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
               <SupportsMap
@@ -1597,6 +1929,173 @@ export default function SupportsPublicitairesPage() {
           )}
         </main>
       </div>
+
+      {/* ===================== FICHE PDV (drill-down niveau 1) ===================== */}
+      {openPdvGroup && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4 animate-in fade-in">
+          <div className="flex max-h-[92vh] w-full max-w-4xl flex-col rounded-xl bg-white shadow-2xl animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setPdvDetailKey(null)}
+                  className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100"
+                  title="Retour à la liste"
+                >
+                  <ArrowLeft className="h-4.5 w-4.5" />
+                </button>
+                <div>
+                  <h2 className="flex items-center gap-2 text-[16px] font-bold text-slate-900">
+                    {openPdvGroup.marque || "Point de vente"}
+                    {openPdvGroup.hasPdvReference && (
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-normal text-slate-400">
+                        {openPdvGroup.pdvReference}
+                      </span>
+                    )}
+                  </h2>
+                  <p className="text-[12px] text-slate-400">
+                    {openPdvGroup.nomSite || "Site non renseigné"} — {openPdvGroup.commune}
+                    {openPdvGroup.quartier ? `, ${openPdvGroup.quartier}` : ""}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setPdvDetailKey(null)} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
+              {/* KPIs du PDV */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <KpiTile label="Supports" value={formatNumber(openPdvGroup.nombreSupportsActifs)} icon={Boxes} badge="bg-violet-500" />
+                <KpiTile label="TSP total" value={formatFCFA(openPdvGroup.totalTSP)} icon={Receipt} badge="bg-cyan-500" />
+                <KpiTile label="Valeur ODP totale" value={formatFCFA(openPdvGroup.totalODPValue)} icon={Wallet} badge="bg-amber-500" />
+                <KpiTile label="Surface totale" value={`${formatNumber(openPdvGroup.totalSurface)} m²`} icon={Ruler} badge="bg-slate-500" />
+              </div>
+
+              {/* Infos PDV */}
+              <div>
+                <SectionTitle icon={Building2}>Informations du point de vente</SectionTitle>
+                <div className="grid grid-cols-3 gap-4">
+                  <DetailItem label="Marque" value={openPdvGroup.marque} />
+                  <DetailItem label="Nom du site" value={openPdvGroup.nomSite} />
+                  <DetailItem label="Ville" value={openPdvGroup.ville} />
+                  <DetailItem label="Commune" value={openPdvGroup.commune} />
+                  <DetailItem label="Région" value={openPdvGroup.region} />
+                  <DetailItem label="District" value={openPdvGroup.district} />
+                  <DetailItem label="Quartier" value={openPdvGroup.quartier} />
+                  <DetailItem
+                    label="Responsable terrain"
+                    icon={User}
+                    value={
+                      openPdvGroup.responsableNom || openPdvGroup.responsablePrenom
+                        ? `${openPdvGroup.responsablePrenom} ${openPdvGroup.responsableNom}`
+                        : null
+                    }
+                  />
+                  <DetailItem label="Contact responsable" icon={Phone} value={openPdvGroup.responsableContact} />
+                </div>
+              </div>
+
+              {/* Liste des supports du PDV */}
+              <div>
+                <div className="mb-3 flex items-center justify-between">
+                  <SectionTitle icon={ImageIcon}>
+                    Supports sur ce point de vente ({openPdvGroup.supports.length})
+                  </SectionTitle>
+                  <button
+                    onClick={() => openCreateForPdv(openPdvGroup)}
+                    className="mb-3 flex items-center gap-1.5 rounded-lg bg-[#0B3C53] px-3 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-[#0B3C53]/90"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Ajouter un support à ce PDV
+                  </button>
+                </div>
+                <div className="overflow-hidden rounded-lg border border-slate-200">
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        <th className="px-3 py-2">Photo</th>
+                        <th className="px-3 py-2">Type</th>
+                        <th className="px-3 py-2">Canal</th>
+                        <th className="px-3 py-2">État</th>
+                        <th className="px-3 py-2">Visibilité</th>
+                        <th className="px-3 py-2">TSP</th>
+                        <th className="px-3 py-2">Valeur ODP</th>
+                        <th className="px-3 py-2">Date collecte</th>
+                        <th className="px-3 py-2 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {openPdvGroup.supports.map((s) => {
+                        const imgUrl = imageUrl(s.imageSupport);
+                        return (
+                          <tr key={s.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                            <td className="px-3 py-2">
+                              {imgUrl ? (
+                                <button
+                                  onClick={() => setLightboxUrl(imgUrl)}
+                                  className="h-10 w-10 overflow-hidden rounded-md border border-slate-200"
+                                >
+                                  <img src={imgUrl} alt="Support" className="h-full w-full object-cover" />
+                                </button>
+                              ) : (
+                                <div className="flex h-10 w-10 items-center justify-center rounded-md border border-slate-100 bg-slate-50 text-slate-300">
+                                  <ImageIcon className="h-4 w-4" />
+                                </div>
+                              )}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-slate-600">{s.typeSupport || "—"}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-slate-600">{s.canal || "—"}</td>
+                            <td className="whitespace-nowrap px-3 py-2">
+                              <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold ${ETAT_BADGE[s.etatSupport] ?? "bg-slate-100 text-slate-600"}`}>
+                                <span className={`h-1.5 w-1.5 rounded-full ${ETAT_DOT[s.etatSupport] ?? "bg-slate-400"}`} />
+                                {s.etatSupport || "—"}
+                              </span>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2">
+                              <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${VISIBILITE_BADGE[s.visibilite] ?? "bg-slate-100 text-slate-600"}`}>
+                                {s.visibilite || "—"}
+                              </span>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-slate-600">{s.tsp ? formatFCFA(s.tsp) : "—"}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-slate-600">{s.odpValue ? formatFCFA(s.odpValue) : "—"}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-[12px] text-slate-500">{formatDate(s.dateCollecte)}</td>
+                            <td className="px-3 py-2">
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  onClick={() => openDetail(s)}
+                                  className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-[#0B3C53]"
+                                  title="Voir les détails"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => openEdit(s)}
+                                  className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
+                                  title="Modifier"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => setDeleteTarget(s)}
+                                  className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                                  title="Supprimer"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===================== MODAL CRUD ===================== */}
       {modalOpen && (
@@ -1623,6 +2122,14 @@ export default function SupportsPublicitairesPage() {
                 </div>
               )}
 
+              {form.pdvReference && (
+                <div className="flex items-center gap-2 rounded-lg border border-[#0B3C53]/20 bg-[#0B3C53]/5 px-4 py-2.5 text-[12px] text-[#0B3C53]">
+                  <Building2 className="h-3.5 w-3.5 shrink-0" />
+                  Ce support sera rattaché au PDV
+                  <span className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px]">{form.pdvReference}</span>
+                </div>
+              )}
+
               {/* Identification */}
               <div>
                 <SectionTitle icon={Building2}>Identification</SectionTitle>
@@ -1635,6 +2142,13 @@ export default function SupportsPublicitairesPage() {
                   </FormField>
                   <FormField label="Nom du site">
                     <TextInput value={form.nomSite ?? ""} onChange={(v) => setForm((f) => ({ ...f, nomSite: v }))} />
+                  </FormField>
+                  <FormField label="Référence PDV">
+                    <TextInput
+                      value={form.pdvReference ?? ""}
+                      onChange={(v) => setForm((f) => ({ ...f, pdvReference: v }))}
+                      placeholder="Laisser vide pour un nouveau PDV (auto-généré)"
+                    />
                   </FormField>
                 </div>
               </div>
@@ -1776,9 +2290,9 @@ export default function SupportsPublicitairesPage() {
                 </div>
               </div>
 
-              {/* Photos */}
+              {/* Photos & signatures — les 4 images du support */}
               <div>
-                <SectionTitle icon={Camera}>Photos du support</SectionTitle>
+                <SectionTitle icon={Camera}>Photos & signatures</SectionTitle>
                 <div className="grid grid-cols-2 gap-4">
                   <ImageUploadField
                     label="Photo principale"
@@ -1789,6 +2303,18 @@ export default function SupportsPublicitairesPage() {
                     label="Photo secondaire"
                     currentUrl={imageUrl(editingSupport?.imageSupportSecondaire ?? null)}
                     onFileSelect={(file) => setForm((f) => ({ ...f, imageSupportSecondaireFile: file }))}
+                  />
+                  <ImageUploadField
+                    label="Signature — Responsable terrain"
+                    currentUrl={imageUrl(editingSupport?.signatureResponsable ?? null)}
+                    onFileSelect={(file) => setForm((f) => ({ ...f, signatureFile: file }))}
+                    compact
+                  />
+                  <ImageUploadField
+                    label="Signature — Signataire"
+                    currentUrl={imageUrl(editingSupport?.signatureSignataire ?? null)}
+                    onFileSelect={(file) => setForm((f) => ({ ...f, signature1File: file }))}
+                    compact
                   />
                 </div>
               </div>
@@ -1928,7 +2454,7 @@ export default function SupportsPublicitairesPage() {
         </div>
       )}
 
-      {/* ===================== MODAL DÉTAIL (LECTURE SEULE) ===================== */}
+      {/* ===================== MODAL DÉTAIL SUPPORT (LECTURE SEULE, drill-down niveau 2) ===================== */}
       {detailTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 animate-in fade-in">
           <div className="flex max-h-[92vh] w-full max-w-3xl flex-col rounded-xl bg-white shadow-2xl animate-in zoom-in-95">
@@ -1960,10 +2486,11 @@ export default function SupportsPublicitairesPage() {
               <div className="absolute bottom-3 left-5 right-5 flex items-end justify-between gap-3">
                 <div>
                   <p className={`${imageUrl(detailTarget.imageSupport) ? "text-white" : "text-white"} text-[17px] font-bold drop-shadow`}>
-                    {detailTarget.marque}
+                    {detailTarget.marque || "Marque non renseignée"}
                   </p>
                   <p className={`${imageUrl(detailTarget.imageSupport) ? "text-white/80" : "text-white/70"} text-[12px]`}>
                     {detailTarget.nomSite || "Site non renseigné"}
+                    {detailTarget.pdvReference && ` · PDV ${detailTarget.pdvReference}`}
                   </p>
                 </div>
                 <div className="flex gap-1.5">
@@ -1996,6 +2523,45 @@ export default function SupportsPublicitairesPage() {
                 </div>
               )}
 
+              {/* Signatures (responsable + signataire) */}
+              {(imageUrl(detailTarget.signatureResponsable) || imageUrl(detailTarget.signatureSignataire)) && (
+                <div>
+                  <SectionTitle icon={PenTool}>Signatures</SectionTitle>
+                  <div className="flex flex-wrap gap-4">
+                    {imageUrl(detailTarget.signatureResponsable) && (
+                      <div>
+                        <p className="mb-1 text-[11px] font-medium text-slate-400">Responsable terrain</p>
+                        <button
+                          onClick={() => setLightboxUrl(imageUrl(detailTarget.signatureResponsable))}
+                          className="block h-24 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white p-2"
+                        >
+                          <img
+                            src={imageUrl(detailTarget.signatureResponsable)!}
+                            alt="Signature responsable"
+                            className="h-full w-full object-contain"
+                          />
+                        </button>
+                      </div>
+                    )}
+                    {imageUrl(detailTarget.signatureSignataire) && (
+                      <div>
+                        <p className="mb-1 text-[11px] font-medium text-slate-400">Signataire</p>
+                        <button
+                          onClick={() => setLightboxUrl(imageUrl(detailTarget.signatureSignataire))}
+                          className="block h-24 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white p-2"
+                        >
+                          <img
+                            src={imageUrl(detailTarget.signatureSignataire)!}
+                            alt="Signature signataire"
+                            className="h-full w-full object-contain"
+                          />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Identification */}
               <div>
                 <SectionTitle icon={Building2}>Identification</SectionTitle>
@@ -2003,6 +2569,7 @@ export default function SupportsPublicitairesPage() {
                   <DetailItem label="Marque" value={detailTarget.marque} />
                   <DetailItem label="Entreprise" value={detailTarget.entreprise} />
                   <DetailItem label="Type de site" value={detailTarget.typeSite} />
+                  <DetailItem label="Référence PDV" value={detailTarget.pdvReference} />
                 </div>
               </div>
 
@@ -2082,8 +2649,8 @@ export default function SupportsPublicitairesPage() {
                 <SectionTitle icon={Receipt}>Fiscalité</SectionTitle>
                 <div className="mb-3 grid grid-cols-3 gap-4">
                   <DetailItem label="Durée" value={detailTarget.duree ? `${detailTarget.duree} mois` : null} />
-                  <DetailItem label="TSP" value={detailTarget.tsp ? `${formatNumber(detailTarget.tsp)} FCFA` : null} />
-                  <DetailItem label="Valeur ODP" value={detailTarget.odpValue ? `${formatNumber(detailTarget.odpValue)} FCFA` : null} />
+                  <DetailItem label="TSP" value={detailTarget.tsp ? formatFCFA(detailTarget.tsp) : null} />
+                  <DetailItem label="Valeur ODP" value={detailTarget.odpValue ? formatFCFA(detailTarget.odpValue) : null} />
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <DetailTag active={detailTarget.odp} label="ODP" />
@@ -2120,7 +2687,7 @@ export default function SupportsPublicitairesPage() {
               <div>
                 <SectionTitle icon={Info}>Suivi</SectionTitle>
                 <div className="grid grid-cols-3 gap-4">
-                  <DetailItem label="Agent collecteur" value={detailTarget.agentNom} icon={User} />
+                  <DetailItem label="Agent collecteur" value={getAgentName(detailTarget)} icon={User} />
                   <DetailItem label="Date de collecte" value={formatDate(detailTarget.dateCollecte)} icon={Calendar} />
                   <DetailItem label="Dernière mise à jour" value={formatDateTime(detailTarget.updatedAt)} icon={Calendar} />
                 </div>
